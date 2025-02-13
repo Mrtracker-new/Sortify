@@ -469,7 +469,7 @@ class FileOrganizationApp:
         self.status_var = tk.StringVar()
         ttk.Label(main_frame, textvariable=self.status_var, wraplength=500).grid(row=4, column=0, columnspan=3, pady=10)
 
-        # File organization section (initially hidden)
+        # File organization section 
         self.org_frame = ttk.Frame(main_frame)
         self.org_frame.grid(row=5, column=0, columnspan=3, pady=10)
         self.org_frame.grid_remove()
@@ -497,13 +497,13 @@ class FileOrganizationApp:
             messagebox.showerror("Error", str(e))
 
     def show_organization_options(self):
-        # Clear existing widgets
+        
         for widget in self.org_frame.winfo_children():
             widget.destroy()
 
         self.org_frame.grid()
 
-        # Add file organization options
+        #  file organization options
         ttk.Label(self.org_frame, text="Organize Files", font=('Helvetica', 12, 'bold')).grid(row=0, column=0, columnspan=2, pady=10)
         ttk.Button(self.org_frame, text="Select Files to Organize", command=self.organize_files).grid(row=1, column=0, pady=5)
         ttk.Button(self.org_frame, text="View Categories", command=self.view_categories).grid(row=1, column=1, pady=5)
