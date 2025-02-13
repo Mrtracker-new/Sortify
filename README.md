@@ -56,7 +56,6 @@ python main.py
 2️⃣ **Choose Category**: Select a category from the dropdown menu  
 3️⃣ **Organize**: Click "Organize Files" and select a destination  
 4️⃣ **Search**: Use the search bar (supports regex)  
-5️⃣ **Undo**: Click "Undo Last Action" or press `Ctrl + Z`  
 
 ---
 
