@@ -5,10 +5,10 @@ import mimetypes
 
 class FileCategorizationAI:
     def __init__(self):
-        # Load English language model
+        
         self.nlp = spacy.load('en_core_web_sm')
         
-        # Enhanced category patterns with subcategories
+        
         self.categories = {
             'documents': {
                 'word': ['.doc', '.docx', '.rtf', '.odt'],
@@ -53,22 +53,22 @@ class FileCategorizationAI:
         file_path = Path(file_path)
         extension = file_path.suffix.lower()
 
-        # Check for specific subcategory
+        
         for category, subcategories in self.categories.items():
             for subcategory, extensions in subcategories.items():
                 if extension in extensions:
                     return f"{category}/{subcategory}"
 
-        # If it's a text file, try content-based categorization
+        
         if self._is_text_file(file_path):
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read(1000)  # Read first 1000 chars
+                    content = f.read(1000)  
                 return self._analyze_text_content(content)
             except:
                 pass
 
-        return 'misc/other'  # Default category
+        return 'misc/other'  
 
     def _is_text_file(self, file_path):
         """Check if file is text-based"""
@@ -79,7 +79,7 @@ class FileCategorizationAI:
         """Analyze text content using spaCy"""
         doc = self.nlp(content)
         
-        # Enhanced content analysis
+        
         code_indicators = {
             'python': ['def ', 'class ', 'import ', 'print('],
             'web': ['<html>', '<body>', 'function()', 'const '],
@@ -90,8 +90,8 @@ class FileCategorizationAI:
             if any(indicator in content for indicator in indicators):
                 return f'code/{lang}'
 
-        # Check for document types
-        if len(doc.ents) > 0:  # If there are named entities, likely a document
+        
+        if len(doc.ents) > 0:  
             return 'documents/text'
             
-        return 'documents/text'  # Default for text files
+        return 'documents/text'  
