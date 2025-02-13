@@ -133,5 +133,5 @@ Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more details
 
 ---
 
-### Made with ❤️ by developers who hate digital clutter!
+### Made with ❤️ by Rolan who hate digital clutter!
 
