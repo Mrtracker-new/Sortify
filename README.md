@@ -126,5 +126,5 @@ If you encounter any issues or have questions, please:
 
 ## Author
 
-Rolan LObo - [rolanlobo901@gmail.com]
+Rolan Lobo - [rolanlobo901@gmail.com]
 
