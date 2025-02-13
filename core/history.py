@@ -9,10 +9,10 @@ class HistoryManager:
     def __init__(self):
         self.db_path = Path('data/history.db')
         
-        # Ensure the data directory exists
+        
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Initialize the database
+        
         max_attempts = 3
         attempt = 0
         last_error = None
