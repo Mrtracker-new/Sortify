@@ -36,7 +36,7 @@ class MainWindow(QMainWindow):
         self.history_manager = history_manager
         self.selected_files = []
         
-        # Define detailed organization categories
+        # detailed organization categories
         self.categories = {
             'Images': {
                 'Photos': ['.jpg', '.jpeg', '.heic', '.jfif'],
@@ -93,14 +93,14 @@ class MainWindow(QMainWindow):
             }
         }
         
-        # Create flattened categories for the combo box
+        
         self.flat_categories = {}
         for main_cat, subcats in self.categories.items():
             for subcat, extensions in subcats.items():
                 cat_name = f"{main_cat}/{subcat}"
                 self.flat_categories[cat_name] = extensions
         
-        # Then setup the UI
+        # UI
         self.setup_ui()
 
     def setup_ui(self):
@@ -110,7 +110,7 @@ class MainWindow(QMainWindow):
         # Set window icon
         self.setWindowIcon(QIcon(":/icons/app_icon.png"))
 
-        # Create central widget and main layout
+        # central widget and main layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
@@ -146,7 +146,7 @@ class MainWindow(QMainWindow):
         history_label.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 20px;")
         self.history_list = QListWidget()
 
-        # Add organization options
+        # organization options
         organize_layout = QHBoxLayout()
         self.organize_combo = QComboBox()
         self.organize_combo.addItems(['All Categories'] + list(self.flat_categories.keys()))
@@ -155,7 +155,7 @@ class MainWindow(QMainWindow):
         organize_layout.addWidget(self.organize_combo)
         organize_layout.addWidget(organize_button)
 
-        # Add all widgets to main layout
+        # all widgets to main layout
         main_layout.addLayout(search_layout)
         main_layout.addLayout(button_layout)
         main_layout.addLayout(organize_layout)
@@ -200,7 +200,7 @@ class MainWindow(QMainWindow):
             try:
                 dest_path = Path(dest_dir)
                 
-                # Ensure destination directory exists
+                
                 dest_path.mkdir(parents=True, exist_ok=True)
                 
                 success_count = 0
@@ -213,13 +213,13 @@ class MainWindow(QMainWindow):
                             
                         target = dest_path / source.name
                         
-                        # If target exists, ask user what to do
+                        
                         if target.exists():
                             reply = self.show_question("File Exists", f"File {target.name} already exists. Replace it?")
                             if reply == QMessageBox.StandardButton.No:
                                 continue
                                 
-                        # Use shutil.move instead of Path.rename for cross-device moves
+                        
                         shutil.move(str(source), str(target))
                         self.history_manager.add_operation(str(source), str(target))
                         success_count += 1
@@ -250,15 +250,15 @@ class MainWindow(QMainWindow):
                 
                 if source.exists():
                     try:
-                        # Ensure target directory exists
+                        
                         target.parent.mkdir(parents=True, exist_ok=True)
                         
                         try:
-                            # First try shutil.move
+                            
                             import shutil
                             shutil.move(str(source), str(target))
                         except OSError:
-                            # If that fails, try copy and delete
+                            
                             logging.info("Falling back to copy-then-delete method")
                             shutil.copy2(str(source), str(target))
                             if target.exists() and target.stat().st_size == source.stat().st_size:
