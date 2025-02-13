@@ -21,7 +21,7 @@ class FileOperations:
                 print("📂 File Organization Setup")
                 print("="*50)
                 
-                # Get base path from user
+                
                 print("\n📍 Step 1: Choose Location")
                 print("Where would you like to create your organization folder?")
                 print("\nCommon locations:")
@@ -32,7 +32,7 @@ class FileOperations:
                 
                 choice = input("\nEnter choice (1-4) or directly type your path: ").strip()
                 
-                # Handle numbered choices
+                
                 if choice in ['1', '2', '3', '4']:
                     if choice == '1':
                         base_path = os.path.expanduser("~/Desktop")
@@ -45,10 +45,10 @@ class FileOperations:
                 else:
                     base_path = choice if choice else "C:/"
                 
-                # Expand user path if using ~
+                
                 base_path = os.path.expanduser(base_path)
                 
-                # Get folder name
+                
                 print("\n📝 Step 2: Name Your Organization Folder")
                 print("\nSuggested names:")
                 print("  1. Organized Files")
@@ -70,20 +70,20 @@ class FileOperations:
                 else:
                     folder_name = name_choice if name_choice else "Organized Files"
                 
-                # Validate path
+                
                 full_path = Path(base_path) / folder_name
                 
-                # Check if folder exists
+                
                 if full_path.exists():
                     print("\n⚠️  Folder Already Exists")
                     response = input(f"Folder '{folder_name}' already exists at {base_path}. Use existing folder? (y/n): ").lower()
                     if response != 'y':
                         continue
                 else:
-                    # Test if we can create the directory
+                    
                     try:
                         full_path.mkdir(parents=True)
-                        full_path.rmdir()  # Remove test directory
+                        full_path.rmdir()  
                     except PermissionError:
                         print(f"\n❌ Error: No permission to create folder at {base_path}")
                         print("Please choose a different location or run with appropriate permissions.")
@@ -110,14 +110,14 @@ class FileOperations:
             base_path (str or Path, optional): Base directory path. If None, will prompt user
             folder_name (str, optional): Name of the organization folder. If None, will prompt user
         """
-        # If either parameter is None, run setup
+        
         if base_path is None or folder_name is None:
             base_path, folder_name = self.setup_organization()
         
         self.base_dir = Path(base_path) / folder_name
-        self.history = HistoryManager()  # Initialize history manager
+        self.history = HistoryManager()  
         
-        # Create the directory
+        
         try:
             self.base_dir.mkdir(parents=True, exist_ok=True)
         except PermissionError:
@@ -126,7 +126,7 @@ class FileOperations:
                 "appropriate permissions or choose a different location."
             )
 
-        # Simplified categories with most common use cases
+        
         self.categories = {
             'documents': ['word', 'pdf', 'text', 'ebooks'],
             'images': ['photos', 'screenshots', 'artwork'],
@@ -167,7 +167,7 @@ class FileOperations:
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest_path = dest_dir / source_path.name
 
-            # Handle file name conflicts
+            
             if dest_path.exists():
                 counter = 1
                 while dest_path.exists():
@@ -207,7 +207,7 @@ class FileOperations:
             if not file_path.exists():
                 raise FileNotFoundError(f"File not found: {file_path}")
 
-            # Default options
+            
             default_options = {
                 'add_date': False,
                 'add_time': False,
@@ -220,15 +220,15 @@ class FileOperations:
                 'remove_special_chars': False
             }
 
-            # Update options with user provided values
+            
             options = {**default_options, **(options or {})}
 
-            # Start with original name or provided new name
+            
             original_name = file_path.stem
             extension = file_path.suffix
             final_name = new_name if new_name else original_name
 
-            # Apply text transformations
+            
             if options['remove_special_chars']:
                 final_name = ''.join(c for c in final_name if c.isalnum() or c in '- _')
 
@@ -243,7 +243,7 @@ class FileOperations:
                 elif options['case'] == 'title':
                     final_name = final_name.title()
 
-            # Add date/time if requested
+            
             prefix_parts = []
             
             if options['add_date'] or options['add_time']:
@@ -255,22 +255,22 @@ class FileOperations:
                     date_str = datetime.now().strftime("%H%M%S")
                 prefix_parts.append(date_str)
 
-            # Add custom prefix if provided
+            
             if options['custom_prefix']:
                 prefix_parts.append(options['custom_prefix'])
 
-            # Combine prefix with name
+            
             if prefix_parts:
                 final_name = f"{('_'.join(prefix_parts))}_{final_name}"
 
-            # Add custom suffix if provided
+            
             if options['custom_suffix']:
                 final_name = f"{final_name}_{options['custom_suffix']}"
 
-            # Create new path
+            
             new_path = file_path.parent / f"{final_name}{extension}"
 
-            # Handle duplicates if needed
+            
             if options['add_sequence'] and new_path.exists():
                 counter = 1
                 while new_path.exists():
@@ -278,10 +278,10 @@ class FileOperations:
                     new_path = file_path.parent / sequence_name
                     counter += 1
 
-            # Perform the rename
+            
             file_path.rename(new_path)
 
-            # Log the operation with metadata
+            
             metadata = {
                 'original_name': str(file_path),
                 'new_name': str(new_path),
@@ -327,7 +327,7 @@ class FileOperations:
         try:
             for index, file_path in enumerate(file_paths, 1):
                 if pattern:
-                    # Replace placeholders in pattern
+                    
                     new_name = pattern.format(
                         n=index,
                         date=datetime.now().strftime("%Y%m%d"),
@@ -364,7 +364,7 @@ class FileOperations:
         """
         file_ext = Path(file_path).suffix.lower().replace('.', '')
         
-        # Extension to category mapping
+        
         ext_mapping = {
             # Documents
             'pdf': 'documents/pdf',
@@ -427,7 +427,7 @@ class FileOperations:
             'iso': 'downloads/software',
         }
         
-        # Get category path or use misc if extension not found
+        
         category_path = ext_mapping.get(file_ext, 'misc/other')
         
         return category_path
@@ -443,14 +443,14 @@ class FileOrganizationApp:
         self.setup_ui()
 
     def setup_ui(self):
-        # Create main frame
+        
         main_frame = ttk.Frame(self.root, padding="20")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
-        # Setup section
+
         ttk.Label(main_frame, text="File Organization Setup", font=('Helvetica', 16, 'bold')).grid(row=0, column=0, columnspan=2, pady=10)
 
-        # Base path selection
+        # Base path selectio
         ttk.Label(main_frame, text="Select Base Location:").grid(row=1, column=0, sticky=tk.W, pady=5)
         self.path_var = tk.StringVar()
         path_entry = ttk.Entry(main_frame, textvariable=self.path_var, width=40)
