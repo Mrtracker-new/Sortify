@@ -39,10 +39,10 @@ A powerful desktop application built with PyQt6 that helps you organize your fil
       pip install -r requirements.txt
 
 ### Build Steps
-1. Clone the repository:
+Clone the repository:
    
-       git clone https://github.com/yourusername/Sortify.git
-       cd Sortify
+    git clone https://github.com/yourusername/Sortify.git
+    cd Sortify
 
 Install dependencies:
 
