@@ -77,26 +77,27 @@ The executable will be created in the `dist` directory.
    - The operation history shows all recent file movements
 
 ## File Organization Structure
-Selected Directory/
-├── Documents/
-│ ├── PDF/
-│ ├── Word/
-│ ├── Text/
-│ ├── Spreadsheets/
-│ ├── Presentations/
-│ └── eBooks/
-├── Images/
-│ ├── Photos/
-│ ├── PNG/
-│ ├── Graphics/
-│ ├── RAW/
-│ └── Design/
-├── Audio/
-│ ├── Music/
-│ ├── Lossless/
-│ ├── Playlists/
-│ └── Voice/
-└── ... (other categories)
+    Selected Directory/
+    ├── Documents/
+    │ ├── PDF/
+    │ ├── Word/
+    │ ├── Text/
+    │ ├── Spreadsheets/
+    │ ├── Presentations/
+    │ └── eBooks/
+    ├── Images/
+    │ ├── Photos/
+    │ ├── PNG/
+    │ ├── Graphics/
+    │ ├── RAW/
+    │ └── Design/
+    ├── Audio/
+    │ ├── Music/
+    │ ├── Lossless/
+    │ ├── Playlists/
+    │ └── Voice/
+    └── ... (other categories)
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
