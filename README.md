@@ -1,130 +1,129 @@
-# Sortify
+# Sortify 📂✨
 
-A powerful desktop application built with PyQt6 that helps you organize your files automatically based on their types. The application provides an intuitive interface for managing and organizing files across your system.
+![Sortify Banner](screenshots/app_screenshot.png) 
 
-![File Organizer Screenshot](screenshots/app_screenshot.png)
+**Your Smart File Organization Companion**  
+*A PyQt6-powered desktop app that automates file sorting with military precision*
 
-## Features
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
+[![Platforms: Win|Mac|Linux](https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/Mrtracker-new/Sortify/releases)
 
-- **Smart File Organization**: Automatically organizes files into categorized folders based on file types
-- **Detailed Categories**: Files are sorted into specific subfolders for better organization:
-  - Documents (PDF, Word, Text, Spreadsheets, Presentations)
-  - Images (Photos, PNG, Graphics, RAW, Design)
-  - Audio (Music, Lossless, Playlists, Voice)
-  - Video (Movies, TV, Mobile, Web)
-  - Archives (ZIP, RAR, Disk, Compressed)
-  - Code (Python, Web, Java, C/C++, Scripts)
-  - And many more...
-- **File Search**: Search for files across directories
-- **Drag & Drop**: Easy file selection through drag and drop
-- **Undo Feature**: Ability to undo the last organization/move operation
-- **Operation History**: Keep track of all file movements
-- **Cross-Platform**: Works on Windows, macOS, and Linux
+---
 
-## Installation
+## 🚀 Features That Will Blow Your Mind
 
-1. Download the latest release for your operating system
-2. Extract the downloaded file
-3. Run the executable:
-   - Windows: `FileOrganizer.exe`
-   - macOS/Linux: `FileOrganizer`
+### 📦 Smart Organization
+- **Auto-categorization** for 100+ file types
+- **Custom folder hierarchies** with nested subcategories
+- **Drag & Drop** support for effortless file management
 
-## Building from Source
+### ⚡ Power Tools
+- **Time Machine** (Undo last action)
+- **Operation History** with timestamp tracking
+- **Deep Search** across multiple directories
+- **Cross-platform** performance
 
-### Prerequisites
-- `Python 3.8` or higher
-- `PyQt6`
-- Required Python packages (install using pip):
+### 🎯 Precision Sorting
+| Category      | Supported Formats                          | Icon |
+|---------------|--------------------------------------------|------|
+| **Documents** | PDF, DOCX, TXT, ODT, EPUB, CSV, XLSX       | 📄   |
+| **Media**     | MP4, MKV, MOV, MP3, FLAC, WAV              | 🎵   |
+| **Images**    | JPG, PNG, WEBP, RAW, SVG, PSD              | 📸   |
+| **Code**      | PY, JS, JAVA, CPP, HTML, CSS               | 👨💻 |
+| **Archives**  | ZIP, RAR, 7Z, TAR.GZ                       | 🗃️  |
 
-      pip install -r requirements.txt
+---
 
-### Build Steps
-Clone the repository:
-   
-    git clone https://github.com/yourusername/Sortify.git
-    cd Sortify
+## ⚙️ Installation Made Easy
 
-Install dependencies:
+### For Everyone
+1. [Download Latest Release](https://github.com/Mrtracker-new/Sortify/releases)
+2. Unzip package
+3. Run executable:
+   - **Windows**: `Sortify.exe`
+   - **macOS**: `./Sortify.app`
+   - **Linux**: `./Sortify`
 
-    pip install -r requirements.txt
+### For Developers
 
-Build the executable:
+# Clone repo
+git clone https://github.com/Mrtracker-new/Sortify.git
+cd Sortify
 
-    python build.py
+# Set up virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/macOS
+venv\Scripts\activate    # Windows
 
-The executable will be created in the `dist` directory.
+# Install dependencies
+pip install -r requirements.txt
 
-## Usage
+# Launch application
+python main.py
+🎮 Usage Guide
+Basic Workflow
+Select Files
+Drag & Drop Demo
+Drag files or click "Add Files"
 
-1. **Select Files**:
-   - Click "Select Files" to choose files
-   - Or drag and drop files into the application window
+Choose Strategy
 
-2. **Organize Files**:
-   - Choose a category from the dropdown (or "All Categories")
-   - Click "Organize Files"
-   - Select destination directory
-   - Files will be automatically sorted into appropriate folders
+python
+Copy
+# Sample organization rules
+RULES = {
+    'Documents': ['.pdf', '.docx', '.txt'],
+    'Code': ['.py', '.js', '.java'],
+    # ... 100+ more rules
+}
+Execute Organization
+Organization Demo
 
-3. **Search Files**:
-   - Enter search term in the search bar
-   - Click "Search"
-   - Select directory to search in
-   - Found files will be listed and can be organized
+Pro Tips
+Quick Undo: Ctrl+Z reverses last action
 
-4. **Undo Operations**:
-   - Click "Undo Last Action" to reverse the most recent file movement
-   - The operation history shows all recent file movements
+Deep Search: Use regex patterns for complex queries
 
-## File Organization Structure
-    Selected Directory/
-    ├── Documents/
-    │ ├── PDF/
-    │ ├── Word/
-    │ ├── Text/
-    │ ├── Spreadsheets/
-    │ ├── Presentations/
-    │ └── eBooks/
-    ├── Images/
-    │ ├── Photos/
-    │ ├── PNG/
-    │ ├── Graphics/
-    │ ├── RAW/
-    │ └── Design/
-    ├── Audio/
-    │ ├── Music/
-    │ ├── Lossless/
-    │ ├── Playlists/
-    │ └── Voice/
-    └── ... (other categories)
+Custom Rules: Edit config/rules.yaml to add new file types
 
-## Contributing
+🏗️ Folder Structure
+bash
+Copy
+Organized_Folder/
+├── Documents/
+│   ├── PDF/           # All PDF files
+│   ├── Word/          # DOC, DOCX, ODT
+│   └── Spreadsheets/  # XLSX, CSV, ODS
+├── Media/
+│   ├── Music/         # MP3, FLAC, WAV
+│   └── Videos/        # MP4, MKV, MOV
+└── ... # 15+ categories
+🛠️ Troubleshooting
+Issue	Solution
+File not recognized	Add extension to rules.yaml
+Permission denied	Run as admin/root
+Undo not working	Check history.log for errors
+🤝 Contributing PRs Welcome
+We ❤️ contributions! Here's how to help:
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Fork the repository
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+Create your feature branch (git checkout -b feature/AmazingFeature)
 
-## License
+Commit changes (git commit -m 'Add some magic')
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Push to branch (git push origin feature/AmazingFeature)
 
-## Acknowledgments
+Open a Pull Request
 
-- PyQt6 for the GUI framework
-- All contributors who have helped with the project
-- Icons from [insert icon source]
+📜 License
+MIT License - See LICENSE for details.
+"With great sorting power comes great responsibility" - Sortify Manifesto
 
-## Support
+📬 Contact
+Author: Rolan Lobo
+Email
+Twitter <!-- Replace with actual -->
 
-If you encounter any issues or have questions, please:
-1. Check the [Issues](https://github.com/Mrtracker-new/Sortify/issues) page
-2. Create a new issue if your problem isn't already listed
-
-## Author
-
-Rolan Lobo - [rolanlobo901@gmail.com]
-
+Made with ❤️ and ☕ by developers who hate messy folders
