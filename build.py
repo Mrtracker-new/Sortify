@@ -73,7 +73,7 @@ print("Configuring PyInstaller...")
 try:
     PyInstaller.__main__.run([
         'main.py',
-        '--name=FileOrganizer',
+        '--name=Sortify',
         '--onefile',
         '--windowed',
         '--icon=resources/icons/app_icon.ico',
