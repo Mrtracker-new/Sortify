@@ -1,124 +1,138 @@
-![Email-rolanlobo901@gmail com-red](https://github.com/user-attachments/assets/a4c5fabf-30ac-4288-aa0b-797925c72689)# Sortify 📂✨
-
-![Sortify Banner](screenshots/app_screenshot.png) 
-
-**Your Smart File Organization Companion**  
-*A PyQt6-powered desktop app that automates file sorting with military precision*
+# Sortify 📂✨
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 [![Platforms: Win|Mac|Linux](https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/Mrtracker-new/Sortify/releases)
 
----
+> **Your Smart File Organization Companion**  
+> Automatically organize files with precision using this PyQt6-powered desktop app.
 
-## 🚀 Features That Will Blow Your Mind
+![File Organizer Screenshot](screenshots/app_screenshot.png)
 
-### 📦 Smart Organization
-- **Auto-categorization** for 100+ file types
-- **Custom folder hierarchies** with nested subcategories
-- **Drag & Drop** support for effortless file management
+## 🚀 Features
 
-### ⚡ Power Tools
-- **Time Machine** (Undo last action)
-- **Operation History** with timestamp tracking
-- **Deep Search** across multiple directories
-- **Cross-platform** performance
-
-### 🎯 Precision Sorting
-| Category      | Supported Formats                          | Icon |
-|---------------|--------------------------------------------|------|
-| **Documents** | PDF, DOCX, TXT, ODT, EPUB, CSV, XLSX       | 📄   |
-| **Media**     | MP4, MKV, MOV, MP3, FLAC, WAV              | 🎵   |
-| **Images**    | JPG, PNG, WEBP, RAW, SVG, PSD              | 📸   |
-| **Code**      | PY, JS, JAVA, CPP, HTML, CSS               | 👨💻 |
-| **Archives**  | ZIP, RAR, 7Z, TAR.GZ                       | 🗃️  |
+✅ **Auto-sorting** for 150+ file formats  
+✅ **Intelligent categorization** with nested folders  
+✅ **Drag & Drop** functionality for ease of use  
+✅ **Undo system** with operation history  
+✅ **Deep search** with regex support  
+✅ **Cross-platform compatibility** (Windows, macOS, Linux)  
 
 ---
 
-## ⚙️ Installation Made Easy
+## 📦 Installation
 
-### For Everyone
-1. [Download Latest Release](https://github.com/Mrtracker-new/Sortify/releases)
-2. Unzip package
-3. Run executable:
+### For Regular Users
+1. [Download the latest release](https://github.com/Mrtracker-new/Sortify/releases)
+2. Unzip the package
+3. Run the executable:
    - **Windows**: `Sortify.exe`
    - **macOS**: `./Sortify.app`
    - **Linux**: `./Sortify`
 
 ### For Developers
+```bash
+# Clone the repository
+git clone https://github.com/Mrtracker-new/Sortify.git
+cd Sortify
 
-# Clone repo
-    git clone https://github.com/Mrtracker-new/Sortify.git
-    cd Sortify
-
-# Set up virtual environment
-    python -m venv venv
-    source venv/bin/activate  # Linux/macOS
-    venv\Scripts\activate    # Windows
+# Create and activate a virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/macOS
+venv\Scripts\activate    # Windows
 
 # Install dependencies
-    pip install -r requirements.txt
+pip install -r requirements.txt
 
-# Launch application
-    python main.py
+# Run the application
+python main.py
+```
 
-# 🎮 Usage Guide
+---
 
-1.Basic Workflow
--Select Files
--Drag & Drop Demo
--Drag files or click "Add Files"
+## 🎮 Basic Usage
 
-2.Choose Strategy
-      
-    # Sample organization rules
-    RULES = {
-    'Documents': ['.pdf', '.docx', '.txt'],
-    'Code': ['.py', '.js', '.java'],
-    # ... 100+ more rules
-    }
-3.Execute Organization
-Organization Demo
+1️⃣ **Add Files**: Click "Select Files" or drag & drop files  
+2️⃣ **Choose Category**: Select a category from the dropdown menu  
+3️⃣ **Organize**: Click "Organize Files" and select a destination  
+4️⃣ **Search**: Use the search bar (supports regex)  
+5️⃣ **Undo**: Click "Undo Last Action" or press `Ctrl + Z`  
 
+---
 
-# 🏗️ Folder Structure
+## 🗂 Folder Structure
 
-    Organized_Folder/
-    ├── Documents/
-    │   ├── PDF/           # All PDF files
-    │   ├── Word/          # DOC, DOCX, ODT
-    │   └── Spreadsheets/  # XLSX, CSV, ODS
-    ├── Media/
-    │   ├── Music/         # MP3, FLAC, WAV
-    │   └── Videos/        # MP4, MKV, MOV
-    └── ... # 15+ categories
+```plaintext
+Sorted_Folder/
+├── Documents/
+│   ├── PDF/
+│   ├── Word/
+│   ├── Spreadsheets/
+│   └── Presentations/
+├── Images/
+│   ├── Photos/
+│   ├── PNG/
+│   └── RAW/
+├── Audio/
+│   ├── Music/
+│   └── Voice/
+├── Code/
+│   ├── Python/
+│   └── Web/
+└── Archives/
+    ├── ZIP/
+    └── RAR/
+```
 
-# 🛠️ Troubleshooting
+---
 
-Issue	Solution
-File not recognized	Add extension to rules.yaml
-Permission denied	Run as admin/root
-Undo not working	Check history.log for errors
+## 📋 Supported Formats
 
-# 🤝 Contributing PRs Welcome
-We ❤️ contributions! Here's how to help:
+| Category   | Key Formats |
+|------------|--------------------------------------------------|
+| Documents  | `.pdf`, `.docx`, `.txt`, `.epub`, `.csv`, `.pptx` |
+| Images     | `.jpg`, `.png`, `.webp`, `.svg`, `.psd`, `.raw`  |
+| Audio      | `.mp3`, `.flac`, `.wav`, `.aac`, `.ogg`         |
+| Video      | `.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`         |
+| Archives   | `.zip`, `.rar`, `.7z`, `.tar.gz`                |
+| Code       | `.py`, `.js`, `.java`, `.cpp`, `.html`, `.css`  |
 
-1.Fork the repository
+---
 
-2.Create your feature branch (git checkout -b feature/AmazingFeature)
+## 🤝 Contributing
 
-3.Commit changes (git commit -m 'Add some magic')
+We welcome contributions! To get started:
 
-4.Push to branch (git push origin feature/AmazingFeature)
+1. **Fork the repository**
+2. **Create a new branch**:
+   ```bash
+   git checkout -b feature/AmazingFeature
+   ```
+3. **Commit your changes**:
+   ```bash
+   git commit -m 'Add awesome feature'
+   ```
+4. **Push to your branch**:
+   ```bash
+   git push origin feature/AmazingFeature
+   ```
+5. **Open a Pull Request**
 
-5.Open a Pull Request
+---
 
-# 📜 License
-MIT License - See LICENSE for details.
-"With great sorting power comes great responsibility" - Sortify Manifesto
+## 📜 License
 
-# 📬 Contact
-Author: Rolan Lobo
-Email![Uploading Emai<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="192" height="20" role="img" aria-label="Email: rolanlobo901@gmail.com"><title>Email: rolanlobo901@gmail.com</title><linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient><clipPath id="r"><rect width="192" height="20" rx="3" fill="#fff"/></clipPath><g clip-path="url(#r)"><rect width="41" height="20" fill="#555"/><rect x="41" width="151" height="20" fill="#e05d44"/><rect width="192" height="20" fill="url(#s)"/></g><g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="110"><text aria-hidden="true" x="215" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="310">Email</text><text x="215" y="140" transform="scale(.1)" fill="#fff" textLength="310">Email</text><text aria-hidden="true" x="1155" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="1410">rolanlobo901@gmail.com</text><text x="1155" y="140" transform="scale(.1)" fill="#fff" textLength="1410">rolanlobo901@gmail.com</text></g></svg>l-rolanlobo901@gmail.com-red.svg…]()
+Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more details.
 
-Made with ❤️ and ☕ by Rolan who hate messy folders
+---
+
+## 📬 Contact
+
+👤 **Author**: Rolan Lobo  
+📧 **Email**: rolanlobo901@gmail.com  
+🐞 **Report Issues**: [GitHub Issues](https://github.com/Mrtracker-new/Sortify/issues)
+
+---
+
+### Made with ❤️ by developers who hate digital clutter!
+
