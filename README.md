@@ -9,6 +9,8 @@
 
 ![File Organizer Screenshot](screenshots/app_screenshot.png)
 
+![File Organizer Screenshot](screenshots/Sortify.png)
+
 ## 🚀 Features
 
 ✅ **Auto-sorting** for 150+ file formats  
