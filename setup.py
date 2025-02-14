@@ -1,10 +1,10 @@
 from setuptools import setup
 
 setup(
-    name="FileOrganizer",
+    name="Sortify",
     version="1.0",
     description="A File Organization System",
-    author="Your Name",
+    author="Rolan Lobo",
     packages=['core', 'ui'],
     install_requires=[
         'PyQt6',
