@@ -1,5 +1,5 @@
 @echo off
-echo Building FileOrganizer...
+echo Building Sortify...
 python build.py
 echo Build complete!
 pause 
