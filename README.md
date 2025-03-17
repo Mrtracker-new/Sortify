@@ -131,7 +131,7 @@ Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more details
 
 👤 **Author**: Rolan Lobo  
 📧 **Email**: rolanlobo901@gmail.com  
-🐞 **Report Issues**: [GitHub Issues](https://github.com/Mrtracker-new/Sortify/issues)
+🐞 **Report Issues**: [GitHub Issues](https://github.com/Mrtracker-new/Sortify/issues).
 
 ---
 
