@@ -2,103 +2,130 @@ import os
 import shutil
 from pathlib import Path
 from datetime import datetime
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from PyQt6.QtWidgets import QMessageBox, QInputDialog, QFileDialog
 from .history import HistoryManager
 
 class FileOperations:
-    @staticmethod
-    def setup_organization():
+    def setup_organization(self, parent=None):
         """
-        Prompt user for organization folder details and validate the path
+        Prompt user for organization folder details and validate the path using GUI dialogs
         
+        Args:
+            parent: Parent widget for the dialogs
+            
         Returns:
             tuple: (base_path, folder_name) containing validated path and folder name
         """
-        while True:
-            try:
-                print("\n" + "="*50)
-                print("📂 File Organization Setup")
-                print("="*50)
+        try:
+            # Step 1: Choose Location
+            location_options = [
+                "Desktop (~/Desktop)",
+                "Documents (~/Documents)",
+                "Custom Path",
+                "Root Drive (C:/)"
+            ]
+            
+            location, ok = QInputDialog.getItem(
+                parent,
+                "Organization Folder Location",
+                "Where would you like to create your organization folder?",
+                location_options,
+                0,  # Default to first option
+                False  # Not editable
+            )
+            
+            if not ok:
+                return None, None
                 
+            if "Desktop" in location:
+                base_path = os.path.expanduser("~/Desktop")
+            elif "Documents" in location:
+                base_path = os.path.expanduser("~/Documents")
+            elif "Custom Path" in location:
+                base_path = QFileDialog.getExistingDirectory(
+                    parent,
+                    "Select Custom Location",
+                    os.path.expanduser("~")
+                )
+                if not base_path:  # User cancelled
+                    return None, None
+            else:  # Root Drive
+                base_path = "C:/"
+            
+            # Step 2: Name Your Organization Folder
+            name_options = [
+                "Organized Files",
+                "My Files",
+                "File System",
+                "Custom Name"
+            ]
+            
+            name_choice, ok = QInputDialog.getItem(
+                parent,
+                "Organization Folder Name",
+                "Choose a name for your organization folder:",
+                name_options,
+                0,  # Default to first option
+                False  # Not editable
+            )
+            
+            if not ok:
+                return None, None
                 
-                print("\n📍 Step 1: Choose Location")
-                print("Where would you like to create your organization folder?")
-                print("\nCommon locations:")
-                print("  1. Desktop       (~/Desktop)")
-                print("  2. Documents     (~/Documents)")
-                print("  3. Custom Path   (e.g., D:/MyFiles)")
-                print("  4. Root Drive    (C:/)")
+            if name_choice == "Custom Name":
+                folder_name, ok = QInputDialog.getText(
+                    parent,
+                    "Custom Folder Name",
+                    "Enter your custom folder name:"
+                )
+                if not ok or not folder_name:
+                    return None, None
+            else:
+                folder_name = name_choice
+            
+            # Validate the path
+            full_path = Path(base_path) / folder_name
+            
+            if full_path.exists():
+                response = QMessageBox.question(
+                    parent,
+                    "Folder Already Exists",
+                    f"Folder '{folder_name}' already exists at {base_path}. Use existing folder?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
                 
-                choice = input("\nEnter choice (1-4) or directly type your path: ").strip()
-                
-                
-                if choice in ['1', '2', '3', '4']:
-                    if choice == '1':
-                        base_path = os.path.expanduser("~/Desktop")
-                    elif choice == '2':
-                        base_path = os.path.expanduser("~/Documents")
-                    elif choice == '3':
-                        base_path = input("\nEnter your custom path: ").strip()
-                    else:
-                        base_path = "C:/"
-                else:
-                    base_path = choice if choice else "C:/"
-                
-                
-                base_path = os.path.expanduser(base_path)
-                
-                
-                print("\n📝 Step 2: Name Your Organization Folder")
-                print("\nSuggested names:")
-                print("  1. Organized Files")
-                print("  2. My Files")
-                print("  3. File System")
-                print("  4. Custom Name")
-                
-                name_choice = input("\nEnter choice (1-4) or directly type your folder name: ").strip()
-                
-                if name_choice in ['1', '2', '3', '4']:
-                    if name_choice == '1':
-                        folder_name = "Organized Files"
-                    elif name_choice == '2':
-                        folder_name = "My Files"
-                    elif name_choice == '3':
-                        folder_name = "File System"
-                    else:
-                        folder_name = input("\nEnter your custom folder name: ").strip()
-                else:
-                    folder_name = name_choice if name_choice else "Organized Files"
-                
-                
-                full_path = Path(base_path) / folder_name
-                
-                
-                if full_path.exists():
-                    print("\n⚠️  Folder Already Exists")
-                    response = input(f"Folder '{folder_name}' already exists at {base_path}. Use existing folder? (y/n): ").lower()
-                    if response != 'y':
-                        continue
-                else:
-                    
-                    try:
-                        full_path.mkdir(parents=True)
-                        full_path.rmdir()  
-                    except PermissionError:
-                        print(f"\n❌ Error: No permission to create folder at {base_path}")
-                        print("Please choose a different location or run with appropriate permissions.")
-                        continue
-                    except Exception as e:
-                        print(f"\n❌ Error: {str(e)}")
-                        print("Please choose a different location.")
-                        continue
-                
-                print("\n✅ Success!")
-                print(f"Organization folder will be created at: {full_path}")
-                print("="*50)
-                return base_path, folder_name
-                
-            except Exception as e:
+                if response != QMessageBox.StandardButton.Yes:
+                    return self.setup_organization(parent)  # Try again
+            else:
+                # Test if we can create the folder
+                try:
+                    full_path.mkdir(parents=True)
+                    full_path.rmdir()  # Remove the test directory
+                except PermissionError:
+                    QMessageBox.critical(
+                        parent,
+                        "Permission Error",
+                        f"No permission to create folder at {base_path}\nPlease choose a different location."
+                    )
+                    return self.setup_organization(parent)  # Try again
+                except Exception as e:
+                    QMessageBox.critical(
+                        parent,
+                        "Error",
+                        f"Error creating folder: {str(e)}\nPlease choose a different location."
+                    )
+                    return self.setup_organization(parent)  # Try again
+            
+            QMessageBox.information(
+                parent,
+                "Success",
+                f"Organization folder will be created at: {full_path}"
+            )
+            
+            return base_path, folder_name
+            
+        except Exception as e:
                 print(f"\n❌ Error: {str(e)}")
                 print("Please try again.")
 
@@ -112,7 +139,12 @@ class FileOperations:
         """
         
         if base_path is None or folder_name is None:
-            base_path, folder_name = self.setup_organization()
+            base_path, folder_name = self.setup_organization(None)
+            
+            # If user cancelled the dialog, use default values
+            if base_path is None or folder_name is None:
+                base_path = str(Path.home() / "Documents")
+                folder_name = "Organized Files"
         
         self.base_dir = Path(base_path) / folder_name
         self.history = HistoryManager()  
@@ -129,7 +161,8 @@ class FileOperations:
         
         self.categories = {
             'documents': ['word', 'pdf', 'text', 'ebooks'],
-            'images': ['photos', 'screenshots', 'artwork'],
+            'images': ['photos', 'screenshots', 'artwork', 'jpg', 'png', 'gif', 'bmp', 'webp', 'heic', 'tiff', 'vector', 'raw', 'whatsapp', 'telegram', 'instagram', 'facebook', 'ai'],
+            'ai_images': ['chatgpt', 'midjourney', 'stable_diffusion', 'bing', 'bard', 'claude', 'other_ai'],
             'videos': ['movies', 'recordings', 'tutorials'],
             'audio': ['music', 'podcasts', 'recordings'],
             'code': ['python', 'javascript', 'web', 'data'],
@@ -155,19 +188,73 @@ class FileOperations:
             print(f"Error creating category folders: {e}")
             return False
 
-    def move_file(self, source_path, category_path):
-        """Move file to appropriate category folder"""
+    def copy_file(self, source_path, category_path):
+        """Copy file to appropriate category folder
+        
+        Args:
+            source_path (str or Path): Path to the source file
+            category_path (str): Category path in format 'category/subcategory'
+            
+        Returns:
+            Path: Destination path where the file was copied
+        """
         try:
             source_path = Path(source_path)
             if not source_path.exists():
                 raise FileNotFoundError(f"File not found: {source_path}")
 
-            category, subcategory = category_path.split('/')
-            dest_dir = self.base_dir / category / subcategory
+            # Parse the category path
+            if '/' in category_path:
+                category, subcategory = category_path.split('/')
+                dest_dir = self.base_dir / category / subcategory
+            else:
+                # If no subcategory is specified, use the category as the destination directory
+                dest_dir = self.base_dir / category_path
+                
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest_path = dest_dir / source_path.name
 
+            # Handle filename conflicts
+            if dest_path.exists():
+                counter = 1
+                while dest_path.exists():
+                    dest_path = dest_dir / f"{dest_path.stem}_{counter}{dest_path.suffix}"
+                    counter += 1
+
+            shutil.copy2(str(source_path), str(dest_path))
+            self.history.log_operation(str(source_path), str(dest_path), operation_type="copy")
+            return dest_path
+        except Exception as e:
+            self.history.log_operation(str(source_path), "failed", operation_type="copy", metadata={'error': str(e)})
+            raise
+
+    def move_file(self, source_path, category_path):
+        """Move file to appropriate category folder
+        
+        Args:
+            source_path (str or Path): Path to the source file
+            category_path (str): Category path in format 'category/subcategory'
             
+        Returns:
+            Path: Destination path where the file was moved
+        """
+        try:
+            source_path = Path(source_path)
+            if not source_path.exists():
+                raise FileNotFoundError(f"File not found: {source_path}")
+
+            # Parse the category path
+            if '/' in category_path:
+                category, subcategory = category_path.split('/')
+                dest_dir = self.base_dir / category / subcategory
+            else:
+                # If no subcategory is specified, use the category as the destination directory
+                dest_dir = self.base_dir / category_path
+                
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = dest_dir / source_path.name
+
+            # Handle filename conflicts
             if dest_path.exists():
                 counter = 1
                 while dest_path.exists():
@@ -175,10 +262,10 @@ class FileOperations:
                     counter += 1
 
             shutil.move(str(source_path), str(dest_path))
-            self.history.log_operation(str(source_path), str(dest_path))
+            self.history.log_operation(str(source_path), str(dest_path), operation_type="move")
             return dest_path
         except Exception as e:
-            self.history.log_operation(str(source_path), "failed", metadata={'error': str(e)})
+            self.history.log_operation(str(source_path), "failed", operation_type="move", metadata={'error': str(e)})
             raise
 
     def rename_file(self, file_path, new_name=None, options=None):
@@ -354,7 +441,7 @@ class FileOperations:
 
     def categorize_file(self, file_path):
         """
-        Categorize a file based on its extension
+        Categorize a file based on its extension, content, and metadata
         
         Args:
             file_path (str): Path to the file
@@ -362,9 +449,11 @@ class FileOperations:
         Returns:
             str: category/subcategory path
         """
-        file_ext = Path(file_path).suffix.lower().replace('.', '')
+        file_path = Path(file_path)
+        file_ext = file_path.suffix.lower().replace('.', '')
+        file_name = file_path.name.lower()
         
-        
+        # Enhanced extension mapping with more file types
         ext_mapping = {
             # Documents
             'pdf': 'documents/pdf',
@@ -372,18 +461,34 @@ class FileOperations:
             'docx': 'documents/word',
             'txt': 'documents/text',
             'rtf': 'documents/text',
+            'md': 'documents/text',
             'epub': 'documents/ebooks',
             'mobi': 'documents/ebooks',
+            'azw': 'documents/ebooks',
+            'azw3': 'documents/ebooks',
+            'log': 'documents/text',
+            'tex': 'documents/text',
             
-            # Images
-            'jpg': 'images/photos',
-            'jpeg': 'images/photos',
-            'png': 'images/photos',
-            'gif': 'images/photos',
-            'bmp': 'images/photos',
-            'svg': 'images/artwork',
-            'ai': 'images/artwork',
-            'psd': 'images/artwork',
+            # Images - Enhanced with specific format subcategories
+            'jpg': 'images/jpg',
+            'jpeg': 'images/jpg',
+            'png': 'images/png',
+            'gif': 'images/gif',
+            'bmp': 'images/bmp',
+            'webp': 'images/webp',
+            'heic': 'images/heic',
+            'heif': 'images/heic',
+            'jfif': 'images/jpg',
+            'svg': 'images/vector',
+            'ai': 'images/vector',
+            'eps': 'images/vector',
+            'raw': 'images/raw',
+            'cr2': 'images/raw',
+            'nef': 'images/raw',
+            'arw': 'images/raw',
+            'dng': 'images/raw',
+            'tiff': 'images/tiff',
+            'tif': 'images/tiff',
             
             # Videos
             'mp4': 'videos/movies',
@@ -391,21 +496,67 @@ class FileOperations:
             'mkv': 'videos/movies',
             'mov': 'videos/movies',
             'wmv': 'videos/movies',
+            'webm': 'videos/movies',
+            'flv': 'videos/movies',
+            'm4v': 'videos/movies',
+            'mpg': 'videos/movies',
+            'mpeg': 'videos/movies',
+            '3gp': 'videos/mobile',
+            '3g2': 'videos/mobile',
             
             # Audio
             'mp3': 'audio/music',
             'wav': 'audio/music',
-            'flac': 'audio/music',
+            'flac': 'audio/lossless',
             'm4a': 'audio/music',
+            'aac': 'audio/music',
+            'ogg': 'audio/music',
+            'wma': 'audio/music',
+            'opus': 'audio/voice',
+            'aiff': 'audio/lossless',
+            'alac': 'audio/lossless',
+            'm3u': 'audio/playlists',
+            'pls': 'audio/playlists',
             
             # Code
             'py': 'code/python',
+            'pyw': 'code/python',
+            'ipynb': 'code/python',
             'js': 'code/javascript',
+            'jsx': 'code/javascript',
+            'ts': 'code/javascript',
+            'tsx': 'code/javascript',
             'html': 'code/web',
+            'htm': 'code/web',
             'css': 'code/web',
+            'scss': 'code/web',
+            'sass': 'code/web',
+            'less': 'code/web',
+            'php': 'code/web',
             'java': 'code/java',
+            'jar': 'code/java',
+            'class': 'code/java',
             'cpp': 'code/cpp',
             'c': 'code/cpp',
+            'h': 'code/cpp',
+            'hpp': 'code/cpp',
+            'cs': 'code/csharp',
+            'go': 'code/other',
+            'rs': 'code/other',
+            'rb': 'code/other',
+            'swift': 'code/other',
+            'kt': 'code/other',
+            'json': 'code/data',
+            'xml': 'code/data',
+            'yaml': 'code/data',
+            'yml': 'code/data',
+            'toml': 'code/data',
+            'sql': 'code/data',
+            'sh': 'code/scripts',
+            'bash': 'code/scripts',
+            'ps1': 'code/scripts',
+            'bat': 'code/scripts',
+            'cmd': 'code/scripts',
             
             # Archives
             'zip': 'archives/compressed',
@@ -413,164 +564,168 @@ class FileOperations:
             '7z': 'archives/compressed',
             'tar': 'archives/compressed',
             'gz': 'archives/compressed',
+            'bz2': 'archives/compressed',
+            'xz': 'archives/compressed',
+            'tgz': 'archives/compressed',
+            'iso': 'archives/disk',
+            'dmg': 'archives/disk',
             
             # Office
             'xlsx': 'office/spreadsheets',
             'xls': 'office/spreadsheets',
+            'csv': 'office/spreadsheets',
+            'ods': 'office/spreadsheets',
             'pptx': 'office/presentations',
             'ppt': 'office/presentations',
+            'pps': 'office/presentations',
+            'ppsx': 'office/presentations',
+            'odp': 'office/presentations',
+            'dotx': 'office/templates',
+            'potx': 'office/templates',
+            'xltx': 'office/templates',
+            'pst': 'office/outlook',
+            'ost': 'office/outlook',
+            'msg': 'office/outlook',
+            'accdb': 'office/database',
+            'mdb': 'office/database',
             
-            # Downloads
-            'exe': 'downloads/software',
-            'msi': 'downloads/software',
-            'dmg': 'downloads/software',
-            'iso': 'downloads/software',
+            # Applications
+            'exe': 'applications/windows',
+            'msi': 'applications/windows',
+            'dll': 'applications/windows',
+            'app': 'applications/mac',
+            'pkg': 'applications/mac',
+            'deb': 'applications/linux',
+            'rpm': 'applications/linux',
+            'appimage': 'applications/linux',
+            'apk': 'applications/mobile',
+            'ipa': 'applications/mobile',
+            
+            # Design
+            'eps': 'design/vector',
+            'dwg': 'design/cad',
+            'dxf': 'design/cad',
+            'stl': 'design/3d',
+            'obj': 'design/3d',
+            'fbx': 'design/3d',
+            'blend': 'design/3d',
+            '3ds': 'design/3d',
+            'ttf': 'design/fonts',
+            'otf': 'design/fonts',
+            'woff': 'design/fonts',
+            'woff2': 'design/fonts',
         }
         
+        # Check for AI-generated images by filename pattern
+        ai_patterns = {
+            'chatgpt': ['chatgpt', 'gpt', 'openai', 'dall-e', 'dalle', 'dall e'],
+            'midjourney': ['midjourney', 'mj'],
+            'stable_diffusion': ['stable diffusion', 'stablediffusion', 'sd'],
+            'bing': ['bing ai', 'bing image', 'bing creator'],
+            'bard': ['bard', 'google bard', 'google ai'],
+            'claude': ['claude', 'anthropic'],
+            'other_ai': ['ai generated', 'ai created', 'ai image', 'generated by ai']
+        }
         
-        category_path = ext_mapping.get(file_ext, 'misc/other')
+        if file_ext in ['jpg', 'jpeg', 'png', 'webp']:
+            for ai_source, patterns in ai_patterns.items():
+                if any(pattern in file_name for pattern in patterns):
+                    return f"ai_images/{ai_source}"
+        
+        # Check for social media files by filename pattern
+        # WhatsApp
+        if 'whatsapp' in file_name or 'wa' in file_name:
+            if file_ext in ['mp4', 'avi', '3gp', 'mov']:
+                return 'videos/whatsapp'
+            elif file_ext in ['jpg', 'jpeg', 'png']:
+                return 'images/whatsapp'
+        
+        # Telegram
+        if 'telegram' in file_name or 'tg' in file_name:
+            if file_ext in ['mp4', 'avi', '3gp', 'mov']:
+                return 'videos/telegram'
+            elif file_ext in ['jpg', 'jpeg', 'png']:
+                return 'images/telegram'
+        
+        # Instagram
+        if 'instagram' in file_name or 'ig' in file_name:
+            if file_ext in ['mp4', 'avi', '3gp', 'mov']:
+                return 'videos/instagram'
+            elif file_ext in ['jpg', 'jpeg', 'png']:
+                return 'images/instagram'
+        
+        # Facebook
+        if 'facebook' in file_name or 'fb' in file_name:
+            if file_ext in ['mp4', 'avi', '3gp', 'mov']:
+                return 'videos/facebook'
+            elif file_ext in ['jpg', 'jpeg', 'png']:
+                return 'images/facebook'
+        
+        # YouTube
+        if 'youtube' in file_name or 'yt' in file_name:
+            if file_ext in ['mp4', 'avi', 'mkv', 'mov']:
+                return 'videos/youtube'
+        
+        # Try to categorize by extension first
+        category_path = ext_mapping.get(file_ext, None)
+        
+        # If extension not found, try to categorize by content patterns
+        if category_path is None:
+            # Check if it's a text file we can analyze
+            if self._is_text_file(file_path):
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read(1000)  # Read first 1000 chars
+                        
+                        # Check for code patterns
+                        if any(pattern in content for pattern in ['def ', 'class ', 'import ', 'function', 'var ', 'const ']):
+                            category_path = 'code/other'
+                        # Check for data patterns
+                        elif any(pattern in content for pattern in ['{', '[', '<html>', '<xml>', 'SELECT ', 'CREATE TABLE']):
+                            category_path = 'code/data'
+                        # Default to text documents
+                        else:
+                            category_path = 'documents/text'
+                except:
+                    # If we can't read the file, use misc category
+                    category_path = 'misc/other'
+            else:
+                # Use filename patterns as a last resort
+                if any(pattern in file_name for pattern in ['screenshot', 'screen', 'capture']):
+                    category_path = 'images/screenshots'
+                elif any(pattern in file_name for pattern in ['invoice', 'receipt', 'bill', 'statement']):
+                    category_path = 'documents/financial'
+                elif any(pattern in file_name for pattern in ['backup', 'bak', 'old', 'archive']):
+                    category_path = 'archives/backups'
+                elif any(pattern in file_name for pattern in ['install', 'setup']):
+                    category_path = 'applications/installers'
+                else:
+                    category_path = 'misc/other'
         
         return category_path
-
-class FileOrganizationApp:
-    def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("File Organization System")
-        self.root.geometry("600x400")
-        self.root.configure(bg="#f0f0f0")
         
-        self.file_ops = None
-        self.setup_ui()
-
-    def setup_ui(self):
+    def _is_text_file(self, file_path):
+        """Check if file is likely a text file based on extension
         
-        main_frame = ttk.Frame(self.root, padding="20")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-
-
-        ttk.Label(main_frame, text="File Organization Setup", font=('Helvetica', 16, 'bold')).grid(row=0, column=0, columnspan=2, pady=10)
-
-        # Base path selectio
-        ttk.Label(main_frame, text="Select Base Location:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.path_var = tk.StringVar()
-        path_entry = ttk.Entry(main_frame, textvariable=self.path_var, width=40)
-        path_entry.grid(row=1, column=1, sticky=tk.W, pady=5)
-        ttk.Button(main_frame, text="Browse", command=self.browse_path).grid(row=1, column=2, padx=5)
-
-        # Folder name
-        ttk.Label(main_frame, text="Organization Folder Name:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        self.folder_var = tk.StringVar(value="Organized Files")
-        ttk.Entry(main_frame, textvariable=self.folder_var, width=40).grid(row=2, column=1, sticky=tk.W, pady=5)
-
-        # Create button
-        ttk.Button(main_frame, text="Create Organization System", command=self.create_system).grid(row=3, column=0, columnspan=3, pady=20)
-
-        # Status section
-        self.status_var = tk.StringVar()
-        ttk.Label(main_frame, textvariable=self.status_var, wraplength=500).grid(row=4, column=0, columnspan=3, pady=10)
-
-        # File organization section 
-        self.org_frame = ttk.Frame(main_frame)
-        self.org_frame.grid(row=5, column=0, columnspan=3, pady=10)
-        self.org_frame.grid_remove()
-
-    def browse_path(self):
-        path = filedialog.askdirectory()
-        if path:
-            self.path_var.set(path)
-
-    def create_system(self):
-        try:
-            base_path = self.path_var.get()
-            folder_name = self.folder_var.get()
-
-            if not base_path or not folder_name:
-                messagebox.showerror("Error", "Please provide both base path and folder name")
-                return
-
-            self.file_ops = FileOperations(base_path, folder_name)
-            self.file_ops.create_category_folders()
+        Args:
+            file_path: Path to the file to check
             
-            self.status_var.set(f"✅ Successfully created organization system at:\n{self.file_ops.base_dir}")
-            self.show_organization_options()
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+        Returns:
+            bool: True if the file has a known text extension, False otherwise
+        """
+        text_extensions = [
+            # Documentation formats
+            '.txt', '.md', '.rst', '.rtf', '.tex', '.adoc', '.wiki',
+            # Data formats
+            '.csv', '.tsv', '.json', '.xml', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf',
+            # Web formats
+            '.html', '.htm', '.css', '.scss', '.sass', '.less', '.js', '.jsx', '.ts', '.tsx',
+            # Programming languages
+            '.py', '.java', '.c', '.cpp', '.h', '.hpp', '.cs', '.php', '.rb', '.pl', '.swift',
+            '.go', '.rs', '.kt', '.scala', '.sh', '.bash', '.ps1', '.bat', '.sql',
+            # Log and config files
+            '.log', '.properties', '.env'
+        ]
+        return file_path.suffix.lower() in text_extensions
 
-    def show_organization_options(self):
-        
-        for widget in self.org_frame.winfo_children():
-            widget.destroy()
-
-        self.org_frame.grid()
-
-        #  file organization options
-        ttk.Label(self.org_frame, text="Organize Files", font=('Helvetica', 12, 'bold')).grid(row=0, column=0, columnspan=2, pady=10)
-        ttk.Button(self.org_frame, text="Select Files to Organize", command=self.organize_files).grid(row=1, column=0, pady=5)
-        ttk.Button(self.org_frame, text="View Categories", command=self.view_categories).grid(row=1, column=1, pady=5)
-
-    def organize_files(self):
-        files = filedialog.askopenfilenames()
-        if files:
-            for file in files:
-                self.show_category_dialog(file)
-
-    def view_categories(self):
-        category_window = tk.Toplevel(self.root)
-        category_window.title("Available Categories")
-        category_window.geometry("400x500")
-
-        ttk.Label(category_window, text="Categories and Subcategories", font=('Helvetica', 12, 'bold')).pack(pady=10)
-        
-        for category, subcategories in self.file_ops.categories.items():
-            ttk.Label(category_window, text=f"\n{category.title()}:", font=('Helvetica', 10, 'bold')).pack(anchor=tk.W)
-            for sub in subcategories:
-                ttk.Label(category_window, text=f"  • {sub}").pack(anchor=tk.W)
-
-    def show_category_dialog(self, file_path):
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Choose Category")
-        dialog.geometry("300x400")
-
-        ttk.Label(dialog, text=f"Choose category for:\n{os.path.basename(file_path)}").pack(pady=10)
-
-        category_var = tk.StringVar()
-        subcategory_var = tk.StringVar()
-
-        # Category selection
-        category_frame = ttk.Frame(dialog)
-        category_frame.pack(fill=tk.X, padx=10)
-        
-        for category in self.file_ops.categories.keys():
-            ttk.Radiobutton(category_frame, text=category.title(), value=category, 
-                           variable=category_var, command=lambda: self.update_subcategories(subcategory_list, category_var.get())
-                           ).pack(anchor=tk.W)
-
-        # Subcategory selection
-        ttk.Label(dialog, text="Select Subcategory:").pack(pady=5)
-        subcategory_list = ttk.Combobox(dialog, textvariable=subcategory_var)
-        subcategory_list.pack(pady=5)
-
-        def move_file():
-            if category_var.get() and subcategory_var.get():
-                try:
-                    self.file_ops.move_file(file_path, f"{category_var.get()}/{subcategory_var.get()}")
-                    messagebox.showinfo("Success", "File moved successfully!")
-                    dialog.destroy()
-                except Exception as e:
-                    messagebox.showerror("Error", str(e))
-            else:
-                messagebox.showerror("Error", "Please select both category and subcategory")
-
-        ttk.Button(dialog, text="Move File", command=move_file).pack(pady=10)
-
-    def update_subcategories(self, subcategory_list, category):
-        subcategory_list['values'] = self.file_ops.categories.get(category, [])
-        subcategory_list.set('')
-
-    def run(self):
-        self.root.mainloop()
-
-# Usage
-if __name__ == "__main__":
-    app = FileOrganizationApp()
-    app.run()
+# FileOrganizationApp class and related code removed as it's redundant with the PyQt6 implementation

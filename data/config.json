@@ -1,0 +1,11 @@
+{
+    "last_training_directory": "",
+    "last_watch_directory": "",
+    "last_schedule_directory": "",
+    "last_destination_directory": "",
+    "model_path": "",
+    "auto_sort_enabled": false,
+    "schedule_enabled": false,
+    "ai_enabled": false,
+    "commands_enabled": false
+}

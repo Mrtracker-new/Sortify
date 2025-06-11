@@ -1,139 +1,206 @@
-# Sortify 📂✨
+<div align="center">
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
-[![Platforms: Win|Mac|Linux](https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/Mrtracker-new/Sortify/releases)
+# 🗂️ Sortify
 
-> **Your Smart File Organization Companion**  
-> Automatically organize files with precision using this PyQt6-powered desktop app.
+**A smart file organization tool with AI-powered categorization**
 
-![File Organizer Screenshot](screenshots/app_screenshot.png)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-![File Organizer Screenshot](screenshots/Sortify.png)
+<img src="screenshots/Sortify.png" alt="Sortify Screenshot" width="600"/>
 
-## 🚀 Features
+</div>
 
-✅ **Auto-sorting** for 150+ file formats  
-✅ **Intelligent categorization** with nested folders  
-✅ **Drag & Drop** functionality for ease of use  
-✅ **Undo system** with operation history  
-✅ **Deep search** with regex support  
-✅ **Cross-platform compatibility** (Windows, macOS, Linux)  
+## 📋 Overview
 
----
+Sortify is an intelligent file organization tool that automatically categorizes and organizes your files based on their formats, content, and metadata. This enhanced version includes powerful features to make file organization more efficient and intelligent.
 
-## 📦 Installation
+## ✨ Key Features
 
-### For Regular Users
-1. [Download the latest release](https://github.com/Mrtracker-new/Sortify/releases)
-2. Unzip the package
-3. Run the executable:
-   - **Windows**: `Sortify.exe`
-   - **macOS**: `./Sortify.app`
-   - **Linux**: `./Sortify`
+### 🔄 Real-time Auto Sort
+Automatically monitor folders and sort new files as they arrive.
+- Uses the watchdog library to detect file system changes
+- Configurable watched folders with recursive monitoring
+- Background processing that works even when the app is minimized
 
-### For Developers
-```bash
-# Clone the repository
-git clone https://github.com/Mrtracker-new/Sortify.git
-cd Sortify
+### ↩️ Undo Last Sort
+Easily revert file operations with a comprehensive undo system.
+- One-click undo for the most recent operation
+- Detailed history tracking of all file movements
+- Ability to undo specific operations from the history
 
-# Create and activate a virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/macOS
-venv\Scripts\activate    # Windows
+### 🖱️ Drag & Drop Support
+Simply drag files directly into the application window.
+- Intuitive interface for adding files
+- Support for multiple files at once
+- Visual feedback during drag operations
 
-# Install dependencies
-pip install -r requirements.txt
+### ⏰ Scheduled Sorting
+Set up automatic sorting to run on a schedule.
+- Daily, weekly, or monthly scheduling options
+- Multiple scheduled jobs for different folders
+- Configurable time settings
 
-# Run the application
-python main.py
-```
+### 🧠 AI-Based File Categorization
+Intelligent categorization beyond simple file extensions.
+- Machine learning model to categorize files based on content and name
+- Trainable classifier that improves over time
+- Detects document types like resumes, invoices, etc.
 
----
+### 🖼️ Image Content Sorting
+Automatically categorize images based on their visual content.
+- Detects faces for sorting photos of people
+- Identifies screenshots vs. photographs
+- Recognizes document images
 
-## 🎮 Basic Usage
+### 📱 Social Media Content Organization
+Automatically categorize media files from popular social platforms.
+- Detects and sorts media from WhatsApp, Telegram, Instagram, Facebook, and YouTube
+- Organizes videos into platform-specific folders (videos/whatsapp, videos/telegram, etc.)
+- Categorizes images by source platform (images/instagram, images/facebook, etc.)
 
-1️⃣ **Add Files**: Click "Select Files" or drag & drop files  
-2️⃣ **Choose Category**: Select a category from the dropdown menu  
-3️⃣ **Organize**: Click "Organize Files" and select a destination  
-4️⃣ **Search**: Use the search bar (supports regex)  
+### 💬 Natural Language Command Parsing
+Define sorting rules using plain English commands.
+- Process commands like "Move all PDFs older than 30 days to Archive folder"
+- Intuitive interface with example commands
+- Support for time-based, extension-based, and location-based rules
 
----
+## 🚀 Getting Started
 
-## 🗂 Folder Structure
+### 📥 Installation
 
-```plaintext
-Sorted_Folder/
-├── Documents/
-│   ├── PDF/
-│   ├── Word/
-│   ├── Spreadsheets/
-│   └── Presentations/
-├── Images/
-│   ├── Photos/
-│   ├── PNG/
-│   └── RAW/
-├── Audio/
-│   ├── Music/
-│   └── Voice/
-├── Code/
-│   ├── Python/
-│   └── Web/
-└── Archives/
-    ├── ZIP/
-    └── RAR/
-```
-
----
-
-## 📋 Supported Formats
-
-| Category   | Key Formats |
-|------------|--------------------------------------------------|
-| Documents  | `.pdf`, `.docx`, `.txt`, `.epub`, `.csv`, `.pptx` |
-| Images     | `.jpg`, `.png`, `.webp`, `.svg`, `.psd`, `.raw`  |
-| Audio      | `.mp3`, `.flac`, `.wav`, `.aac`, `.ogg`         |
-| Video      | `.mp4`, `.mkv`, `.mov`, `.avi`, `.webm`         |
-| Archives   | `.zip`, `.rar`, `.7z`, `.tar.gz`                |
-| Code       | `.py`, `.js`, `.java`, `.cpp`, `.html`, `.css`  |
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! To get started:
-
-1. **Fork the repository**
-2. **Create a new branch**:
+1. Clone the repository:
    ```bash
-   git checkout -b feature/AmazingFeature
+   git clone https://github.com/Mrtracker-new/Sortify.git
+   cd Sortify
    ```
-3. **Commit your changes**:
+
+2. Create and activate a virtual environment:
    ```bash
-   git commit -m 'Add awesome feature'
+   python -m venv venv
+   
+   # Linux/macOS
+   source venv/bin/activate
+   
+   # Windows
+   venv\Scripts\activate
    ```
-4. **Push to your branch**:
+
+3. Install dependencies:
    ```bash
-   git push origin feature/AmazingFeature
+   pip install -r requirements.txt
    ```
-5. **Open a Pull Request**
 
----
+4. Run the application:
+   ```bash
+   python main.py
+   ```
 
-## 📜 License
+### 📚 User Guide
 
-Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more details.
+<details>
+<summary><b>🔄 Real-time Auto Sort</b></summary>
+<br>
 
----
+1. Click the "Auto-Sort" toggle in the toolbar
+2. Select a folder to watch
+3. Choose a destination for sorted files
+4. Files added to the watched folder will be automatically sorted
+</details>
+
+<details>
+<summary><b>🖱️ Drag & Drop</b></summary>
+<br>
+
+1. Simply drag files from your file explorer
+2. Drop them into the main window
+3. Use the organize button to sort them
+</details>
+
+<details>
+<summary><b>⏰ Scheduled Sorting</b></summary>
+<br>
+
+1. Open Settings from the toolbar
+2. Go to the "Scheduled Sorting" tab
+3. Configure your schedule and select folders
+4. Add the job to the scheduler
+</details>
+
+<details>
+<summary><b>📱 Social Media Content Organization</b></summary>
+<br>
+
+1. No additional setup required - works automatically
+2. Media files with names containing platform identifiers (e.g., "whatsapp", "telegram", "instagram") will be sorted into dedicated folders
+3. Supports common video formats (mp4, avi, 3gp, mov) and image formats (jpg, jpeg, png)
+</details>
+
+<details>
+<summary><b>💬 Natural Language Commands</b></summary>
+<br>
+
+1. Go to the "Commands" tab
+2. Enter a command like "Move all PDFs to Archive folder"
+3. Click "Execute Command"
+4. You can also use the example commands provided
+</details>
+
+## 🔧 Technical Details
+
+<details>
+<summary><b>Architecture</b></summary>
+<br>
+
+The application uses a modular architecture with these key components:
+
+- **Core Modules**:
+  - `watcher.py`: Implements real-time folder monitoring
+  - `scheduler.py`: Manages scheduled sorting tasks
+  - `ai_categorizer.py`: Provides machine learning-based file classification
+  - `image_analyzer.py`: Analyzes image content and detects social media sources
+  - `categorization.py`: Handles file categorization including social media detection
+  - `file_operations.py`: Manages file sorting and organization with platform-specific rules
+  - `nlp_parser.py`: Parses natural language commands
+
+- **UI Components**:
+  - `main_window.py`: Main interface with tabs
+  - `settings_window.py`: Configuration interface for all features
+</details>
+
+<details>
+<summary><b>Dependencies</b></summary>
+<br>
+
+Key dependencies:
+- watchdog: For real-time file monitoring
+- apscheduler: For scheduled tasks
+- scikit-learn: For machine learning classification
+- opencv-python: For image analysis
+- nltk: For natural language processing
+- spaCy: For advanced text analysis
+</details>
+
+## 👥 Contributing
+
+Contributions are welcome! Here's how you can help:
+
+- 🐛 Report bugs and issues
+- 💡 Suggest new features or improvements
+- 🧪 Add tests for existing functionality
+- 📝 Improve documentation
+- 🔧 Submit pull requests with bug fixes or features
+
+## 📄 License
+
+Distributed under the MIT License. See [LICENSE](LICENSE) for more details.
 
 ## 📬 Contact
 
+<div align="center">
+
 👤 **Author**: Rolan Lobo  
-📧 **Email**: rolanlobo901@gmail.com  
-🐞 **Report Issues**: [GitHub Issues](https://github.com/Mrtracker-new/Sortify/issues).
+📧 **Email**: [rolanlobo901@gmail.com](mailto:rolanlobo901@gmail.com)  
+🐞 **Issues**: [GitHub Issues](https://github.com/Mrtracker-new/Sortify/issues)
 
----
-
-### Made with ❤️ by Rolan who hate digital clutter!
-
+</div>

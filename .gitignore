@@ -37,3 +37,6 @@ ENV/
 *.swp
 *.swo
 .DS_Store 
+
+# Installer files
+installer/

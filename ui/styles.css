@@ -72,6 +72,10 @@ QMessageBox {
     background-color: white;
 }
 
+QMessageBox QLabel {
+    color: #333333; /* Dark text color for better visibility */
+}
+
 QMessageBox QPushButton {
     min-width: 80px;
     padding: 5px 15px;
@@ -101,24 +105,7 @@ QMessageBox QPushButton {
     background-color: #34495e;
 }
 
-/* Responsive Design */
-@media (max-width: 600px) {
-    QLabel#titleLabel {
-        font-size: 20px;
-    }
-
-    QLabel#dropLabel {
-        font-size: 14px;
-        padding: 20px;
-    }
-
-    QPushButton {
-        min-width: 100px;
-        padding: 8px 16px;
-    }
-}
-
-/* Modern Scrollbar */
+/* Scrollbar */
 QScrollBar:vertical {
     border: none;
     background-color: #2b2b2b;

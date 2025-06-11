@@ -8,11 +8,17 @@ setup(
     packages=['core', 'ui'],
     install_requires=[
         'PyQt6',
-        'pathlib',
+        'apscheduler',
+        'nltk',
+        'spacy',
+        'opencv-python',
+        'scikit-learn',
+        'watchdog',
+        'pillow',
     ],
     entry_points={
         'console_scripts': [
-            'fileorganizer=main:main',
+            'sortify=main:main',
         ],
     },
-) 
+)
