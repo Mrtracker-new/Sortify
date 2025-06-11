@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="screenshots/Sortify.jpg" alt="Sortify Logo" width="200"/>
+
 # 🗂️ Sortify
 
 **A smart file organization tool with AI-powered categorization**
