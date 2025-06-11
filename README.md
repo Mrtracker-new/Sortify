@@ -9,7 +9,7 @@
 [![GitHub issues](https://img.shields.io/github/issues/Mrtracker-new/Sortify)](https://github.com/Mrtracker-new/Sortify/issues)
 [![GitHub stars](https://img.shields.io/github/stars/Mrtracker-new/Sortify)](https://github.com/Mrtracker-new/Sortify/stargazers)
 
-<img src="screenshots/Sortify.png" alt="Sortify Screenshot" width="600"/>
+<img src="screenshots/Main_interface.png" alt="Sortify Main Interface" width="600"/>
 
 [Installation](#-installation) • [Features](#-key-features) • [User Guide](#-user-guide) • [Technical Details](#-technical-details) • [Contributing](#-contributing)
 
