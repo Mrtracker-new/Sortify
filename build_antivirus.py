@@ -91,6 +91,13 @@ def build_application_antivirus_friendly():
             '--exclude-module', 'PySide2.QtCore',
             '--exclude-module', 'PySide2.QtGui',
             '--exclude-module', 'PySide2.QtWidgets',
+            # Ensure all necessary DLLs are included
+            '--collect-all', 'numpy',
+            '--collect-all', 'thinc',
+            '--collect-all', 'spacy',
+            '--collect-all', 'blis',
+            '--collect-all', 'cymem',
+            '--collect-all', 'preshed',
         ]
 
         # Add platform-specific arguments

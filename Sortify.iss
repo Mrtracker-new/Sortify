@@ -47,6 +47,9 @@ Source: "dist\Sortify.exe\*"; DestDir: "{app}"; Flags: ignoreversion recursesubd
 Source: "dist\Sortify.exe\_internal\python*.dll"; DestDir: "{app}"; Flags: ignoreversion
 ; Create a batch file launcher as a fallback
 Source: "launcher.bat"; DestDir: "{app}"; Flags: ignoreversion
+; Include Visual C++ Redistributable 2015-2022 (required for NumPy DLLs)
+; Changed from external URL to local file that must be downloaded separately
+Source: "redist\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall
 
 [Code]
 function InitializeSetup(): Boolean;
@@ -54,11 +57,38 @@ begin
   Result := True;
 end;
 
+// Check if Visual C++ Redistributable is already installed
+function VCRedistNeedsInstall: Boolean;
+var
+  Version: String;
+  InstallVCRedist: Boolean;
+begin
+  // Check for VC++ 2015-2022 Redistributable (14.0)
+  RegQueryStringValue(HKEY_LOCAL_MACHINE,
+    'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Version', Version);
+  
+  // If Version is empty, we need to install the redistributable
+  InstallVCRedist := (Version = '');
+  
+  // Also check the 32-bit registry view
+  if InstallVCRedist then
+  begin
+    RegQueryStringValue(HKEY_LOCAL_MACHINE,
+      'SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Version', Version);
+    InstallVCRedist := (Version = '');
+  end;
+  
+  Result := InstallVCRedist;
+end;
+
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: startmenuicon
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+; Install Visual C++ Redistributable (required for NumPy DLLs) if needed
+Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Redistributable (required for NumPy)..."; Flags: waituntilterminated; Check: VCRedistNeedsInstall
+; Launch the application after installation
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 ; Uncomment the following section when you have a code signing certificate

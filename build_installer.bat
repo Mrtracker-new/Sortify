@@ -1,4 +1,14 @@
 @echo off
+echo Checking for Visual C++ Redistributable...
+if not exist redist\vc_redist.x64.exe (
+    echo ERROR: Visual C++ Redistributable not found in redist directory.
+    echo Please run prepare_build.bat first or download it manually from:
+    echo https://aka.ms/vs/17/release/vc_redist.x64.exe
+    echo and place it in the redist directory.
+    pause
+    exit /b 1
+)
+
 echo Building Sortify application with PyInstaller...
 python build.py
 
