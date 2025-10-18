@@ -1,5 +1,5 @@
 # PyInstaller hook for cymem
-from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs  # type: ignore
 import os
 
 # Collect all cymem files and dependencies
@@ -17,7 +17,7 @@ hiddenimports.extend([
 
 # Ensure cymem DLLs are included
 try:
-    import cymem
+    import cymem  # type: ignore
     print(f"Successfully imported cymem from {cymem.__file__}")
     
     # Get the directory containing cymem

@@ -1,15 +1,15 @@
 # PyInstaller hook for spaCy
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules  # type: ignore
 import os
 import sys
-import spacy
+import spacy  # type: ignore
 
 # Add spaCy data files
 datas = collect_data_files('spacy')
 
 # Add spaCy model data files
 try:
-    import en_core_web_sm
+    import en_core_web_sm  # type: ignore
     model_path = en_core_web_sm.__path__[0]
     datas.append((model_path, 'en_core_web_sm'))
 except ImportError:

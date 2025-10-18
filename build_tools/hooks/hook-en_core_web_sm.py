@@ -1,10 +1,10 @@
 # PyInstaller hook for en_core_web_sm
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules  # type: ignore
 import os
 import sys
 
 try:
-    import en_core_web_sm
+    import en_core_web_sm  # type: ignore
     # Get the path to the model
     model_path = en_core_web_sm.__path__[0]
     

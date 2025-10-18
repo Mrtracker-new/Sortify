@@ -1,5 +1,5 @@
 # PyInstaller hook for thinc
-from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs, collect_submodules  # type: ignore
 import os
 import sys
 
@@ -32,7 +32,7 @@ hiddenimports.extend([
 
 # Ensure numpy_ops is included
 try:
-    import thinc.backends.numpy_ops
+    import thinc.backends.numpy_ops  # type: ignore
     print(f"Successfully imported thinc.backends.numpy_ops from {thinc.backends.numpy_ops.__file__}")
     
     # Get the directory containing numpy_ops

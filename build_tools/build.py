@@ -8,8 +8,8 @@ import time
 from pathlib import Path
 
 # Ensure these modules are included in the build
-import win32security
-import ntsecuritycon
+import win32security  # type: ignore
+import ntsecuritycon  # type: ignore
 import sqlite3
 import sqlite3.dbapi2
 
@@ -271,6 +271,7 @@ def build_application():
             '--windowed',  # No console window
             '--clean',  # Clean PyInstaller cache
             '--noconfirm',  # Overwrite output directory without asking
+            '--noupx',  # Disable UPX compression to avoid antivirus false positives
             '--add-data', f"ui/styles.css{config['separator']}ui",
             '--add-data', f"resources/icons/*.png{config['separator']}resources/icons",
             '--add-data', f"data{config['separator']}data",
@@ -450,8 +451,8 @@ def ensure_database_permissions():
                 
                 # Also try win32security as a backup method
                 try:
-                    import win32security
-                    import ntsecuritycon as con
+                    import win32security  # type: ignore
+                    import ntsecuritycon as con  # type: ignore
                     
                     # Get current user's SID
                     username = os.environ.get('USERNAME')

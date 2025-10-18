@@ -1,5 +1,5 @@
 # PyInstaller hook for blis
-from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs  # type: ignore
 import os
 
 # Collect all blis files and dependencies
@@ -18,7 +18,7 @@ hiddenimports.extend([
 
 # Ensure blis DLLs are included
 try:
-    import blis
+    import blis  # type: ignore
     print(f"Successfully imported blis from {blis.__file__}")
     
     # Get the directory containing blis

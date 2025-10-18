@@ -1,17 +1,9 @@
 @echo off
 setlocal
 
-:: Check for command line argument to use antivirus-friendly build
-set BUILD_SCRIPT=build_tools\build.py
-set BUILD_TYPE=standard
-
-if /i "%1"=="safe" (
-    set BUILD_SCRIPT=build_tools\build_antivirus.py
-    set BUILD_TYPE=antivirus-friendly
-)
-
-echo Building Sortify with %BUILD_TYPE% settings...
-python %BUILD_SCRIPT%
+:: Build with antivirus-friendly settings (--noupx)
+echo Building Sortify with antivirus-friendly settings...
+python build_tools\build.py
 
 :: Check if PyInstaller build was successful
 if not exist dist\Sortify.exe\Sortify.exe (
@@ -59,7 +51,6 @@ echo NOTE: To prevent Windows Defender false positives, consider:
 echo 1. Obtaining a code signing certificate and uncommenting the signing steps
 echo 2. Submitting your installer to Microsoft for malware analysis at:
 echo    https://www.microsoft.com/en-us/wdsi/filesubmission
-echo 3. Running with antivirus-friendly build: build_installer.bat safe
 echo.
 
 pause

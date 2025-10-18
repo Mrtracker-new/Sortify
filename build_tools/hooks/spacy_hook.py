@@ -1,7 +1,7 @@
 # Runtime hook for spaCy
 import os
 import sys
-import spacy
+import spacy  # type: ignore
 import site
 import importlib.util
 

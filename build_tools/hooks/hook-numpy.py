@@ -1,4 +1,4 @@
-from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs  # type: ignore
 
 datas, binaries, hiddenimports = collect_all('numpy')
 
@@ -40,9 +40,9 @@ hiddenimports.extend([
 
 # Ensure numpy_ops is included
 try:
-    import numpy.core._multiarray_umath
-    import numpy.linalg.lapack_lite
-    import thinc.backends.numpy_ops
+    import numpy.core._multiarray_umath  # type: ignore
+    import numpy.linalg.lapack_lite  # type: ignore
+    import thinc.backends.numpy_ops  # type: ignore
     print("Successfully imported critical NumPy and Thinc modules")
 except ImportError as e:
     print(f"Warning: Could not import some NumPy or Thinc modules: {e}")

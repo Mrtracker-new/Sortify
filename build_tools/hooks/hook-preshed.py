@@ -1,5 +1,5 @@
 # PyInstaller hook for preshed
-from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs  # type: ignore
 import os
 
 # Collect all preshed files and dependencies
@@ -18,7 +18,7 @@ hiddenimports.extend([
 
 # Ensure preshed DLLs are included
 try:
-    import preshed
+    import preshed  # type: ignore
     print(f"Successfully imported preshed from {preshed.__file__}")
     
     # Get the directory containing preshed
