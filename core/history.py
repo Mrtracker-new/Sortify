@@ -5,6 +5,7 @@ import sys
 import time
 import logging
 import threading
+import shutil
 from pathlib import Path
 
 # Create a logger

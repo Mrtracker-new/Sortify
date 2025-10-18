@@ -32,9 +32,9 @@ pydantic_core==2.27.2
 Pygments==2.19.1
 pyinstaller==6.12.0
 pyinstaller-hooks-contrib==2025.1
-PyQt6==6.8.1
-PyQt6-Qt6==6.8.2
-PyQt6_sip==13.10.0
+PyQt6==6.7.0
+PyQt6-Qt6==6.7.0
+PyQt6_sip==13.6.0
 pywin32-ctypes==0.2.3
 pywin32==306
 requests==2.32.3

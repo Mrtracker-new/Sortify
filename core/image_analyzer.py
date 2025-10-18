@@ -2,8 +2,8 @@ import os
 import logging
 import math
 import hashlib
+import datetime
 from pathlib import Path
-from datetime import datetime
 from collections import Counter
 
 # Try to import PIL, but make it optional
@@ -35,6 +35,16 @@ class ImageAnalyzer:
         self.design_formats = {'.psd', '.ai', '.eps'}
         self.cache = {}
         self.cache_size = 100
+        
+        # Format categories for categorization
+        self.format_categories = {
+            'photos': self.photo_formats,
+            'vectors': self.vector_formats,
+            'designs': self.design_formats,
+            'screenshots': {'.png'},
+            'gifs': {'.gif'},
+            'webimages': {'.webp'}
+        }
         
         # AI image source patterns
         self.ai_image_sources = {

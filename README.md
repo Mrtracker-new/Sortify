@@ -4,7 +4,7 @@
 
 # 🗂️ Sortify
 
-**A smart file organization tool with AI-powered categorization**
+**Your Files Are a Mess. We Get It. Let's Fix That.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -13,128 +13,156 @@
 
 <img src="screenshots/Main_interface.png" alt="Sortify Main Interface" width="600"/>
 
-[Installation](#-installation) • [Features](#-key-features) • [User Guide](#-user-guide) • [Technical Details](#-technical-details) • [Contributing](#-contributing)
+[Get Started](#-get-started) • [Cool Features](#-what-can-it-do) • [How to Use](#-how-to-use-this-thing) • [Need Help?](#-troubleshooting)
 
 </div>
 
-## 📋 Overview
+---
 
-Sortify is an intelligent file organization tool that automatically categorizes and organizes your files based on their formats, content, and metadata. It leverages AI and machine learning to understand file content and context, going beyond simple extension-based sorting.
+## 🤔 What Is This?
 
-### 🎯 Why Sortify?
+Look, we've all been there. Your Downloads folder looks like a digital tornado hit it. Desktop covered in screenshots from 2019. "New Folder (47)" is mocking you.
 
-- **Save Time**: Automate tedious file organization tasks
-- **Reduce Clutter**: Keep your digital workspace organized automatically
-- **Smart Categorization**: Files are sorted based on what they actually contain, not just their extension
-- **Flexible Rules**: Create custom organization rules using natural language
-- **Set & Forget**: Configure once and let Sortify handle organization in the background
+Sortify is basically Marie Kondo for your computer (but less judgmental). It's a smart file organizer that:
+- **Actually understands your files** - Not just "oh it ends in .jpg, must be an image" but "hey this is a WhatsApp photo from last Tuesday"
+- **Uses AI** - Because it's 2025 and we should let robots do boring stuff
+- **Works while you sleep** - Set it and forget it (like a Crockpot, but for files)
 
-## ✨ Key Features
+### 🎯 Why Should I Care?
 
-### 🔄 Real-time Auto Sort
-Automatically monitor folders and sort new files as they arrive.
-- Uses the watchdog library to detect file system changes
-- Configurable watched folders with recursive monitoring
-- Background processing that works even when the app is minimized
+- **Stop Wasting Time** - Seriously, how many hours have you spent looking for that one PDF?
+- **Your Desktop Will Thank You** - No more "Screenshot_20231204_final_FINAL_v2.png"
+- **It's Actually Smart** - Knows the difference between vacation photos and AI-generated memes
+- **Plain English Commands** - Just tell it "move all PDFs older than 30 days" and boom, done
+- **Works While You Netflix** - Automatically sorts new files as they arrive
 
-### ↩️ Undo Last Sort
-Easily revert file operations with a comprehensive undo system.
-- One-click undo for the most recent operation
-- Detailed history tracking of all file movements
-- Ability to undo specific operations from the history
+## ✨ What Can It Do?
 
-### 🖱️ Drag & Drop Support
-Simply drag files directly into the application window.
-- Intuitive interface for adding files
-- Support for multiple files at once
-- Visual feedback during drag operations
+### 🔄 Auto-Sort (The Magic Button)
+Literally watches your folders and sorts stuff automatically. Like having a really organized friend who never sleeps.
+- Detects new files instantly (faster than you can say "where did I save that?")
+- Works in the background (minimized, not minimized, whatever)
+- Can watch multiple folders at once (overachiever mode)
 
-### ⏰ Scheduled Sorting
-Set up automatic sorting to run on a schedule.
-- Daily, weekly, or monthly scheduling options
-- Multiple scheduled jobs for different folders
-- Configurable time settings
+### ↩️ Undo Button (Because We All Make Mistakes)
+Oops, didn't mean to move that? No problem.
+- "Oh crap" button for your last move
+- Full history of everything it's ever touched
+- Cherry-pick specific operations to undo (time travel, basically)
 
-### 🧠 AI-Based File Categorization
-Intelligent categorization beyond simple file extensions.
-- Machine learning model to categorize files based on content and name
-- Trainable classifier that improves over time
-- Detects document types like resumes, invoices, etc.
+### 🖱️ Drag & Drop (Like Literally Just Drag It)
+If you can drag an icon, you can use this feature. That's it. That's the tutorial.
+- Works exactly like you think it does
+- Multiple files? Sure, go wild
+- Even grandma could figure this out
 
-### 🖼️ Image Content Sorting
-Automatically categorize images based on their visual content.
-- Detects faces for sorting photos of people
-- Identifies screenshots vs. photographs
-- Recognizes document images
+### ⏰ Schedule It (For the Planners)
+Want it to auto-sort every Tuesday at 3 AM? Weird, but okay.
+- Daily, weekly, monthly - pick your poison
+- Set up multiple schedules (one for downloads, one for desktop, etc.)
+- Runs even when you're not looking
 
-### 📱 Social Media Content Organization
-Automatically categorize media files from popular social platforms.
-- Detects and sorts media from WhatsApp, Telegram, Instagram, Facebook, and YouTube
-- Organizes videos into platform-specific folders (videos/whatsapp, videos/telegram, etc.)
-- Categorizes images by source platform (images/instagram, images/facebook, etc.)
+### 🧠 AI-Powered Brain (The Cool Part)
+This isn't your grandpa's file sorter. It actually *thinks* about your files.
+- Reads file contents, not just extensions (detective mode activated)
+- Gets smarter over time (unlike my goldfish)
+- "Oh that's a resume!" "That's an invoice!" *actually understands things*
 
-### 💬 Natural Language Command Parsing
-Define sorting rules using plain English commands.
-- Process commands like "Move all PDFs older than 30 days to Archive folder"
-- Intuitive interface with example commands
-- Support for time-based, extension-based, and location-based rules
+### 🖼️ Smart Image Sorting (It Knows What's In Your Photos)
+Not all images are created equal, and this tool knows it.
+- Can tell if there are faces in photos (not creepy, we promise)
+- Screenshots? Sorted. Real photos? Sorted differently.
+- Scanned documents get their own VIP section
 
-## 🚀 Getting Started
+### 📱 Social Media Sorter (Because You Download Everything)
+Knows the difference between your Instagram save-for-laters and WhatsApp group chat chaos.
+- WhatsApp, Telegram, Instagram, Facebook, YouTube - it knows them all
+- Separate folders for each platform (finally!)
+- No more "wait, where did I save that TikTok?"
 
-### 💻 System Requirements
+### 💬 Talk to It Like a Human
+Forget complicated coding. Just tell it what you want in regular human speak.
+- "Move all PDFs older than 30 days to Archive" ← IT UNDERSTANDS THIS
+- "Delete temporary files" ← THIS TOO
+- "Organize downloads by file type" ← EVEN THIS
 
-- **Operating System**: Windows 10/11, macOS 10.14+, or Linux (Ubuntu 18.04+, Fedora 30+)
-- **Python**: Version 3.8 or higher
-- **Disk Space**: ~150MB for installation (including dependencies)
-- **RAM**: Minimum 4GB recommended (8GB+ for optimal performance with AI features)
-- **Additional**: Internet connection required for initial setup and AI model downloads
+No Ph.D. required.
 
-### 📥 Installation
+### 🔍 Find Duplicates (Stop Hoarding)
+**✨ NEW!** Finally implemented!
+- Finds duplicate files by content (not just name)
+- Shows you how much space you're wasting
+- Safe delete mode (won't murder your files accidentally)
 
-#### Option 1: Windows Installer (Recommended for Windows Users)
+---
 
-1. Download the latest installer from the [Releases](https://github.com/Mrtracker-new/Sortify/releases) page
-2. Run the installer and follow the on-screen instructions
-3. Launch Sortify from the Start menu or desktop shortcut
+## 🚀 Get Started
 
-> **Note**: If Windows Defender flags the installer, you may need to add an exception for the application.
+### 💻 Will It Run on My Potato?
 
-#### Option 2: From Source (For Developers or All Platforms)
+Probably! Here's what you need:
 
-1. Clone the repository:
+- **OS**: Windows 10/11, macOS 10.14+, or Linux (if you use Linux, you already know)
+- **Python**: 3.8 or newer (no, Python 2 won't work, let it go)
+- **Disk Space**: ~150MB (less than a single photo from your phone)
+- **RAM**: 4GB minimum, 8GB if you want the AI to not think in slow motion
+- **Internet**: Needed once to download the AI brain
+
+### 📥 Installation (Choose Your Adventure)
+
+#### Option 1: Windows Installer (Click and Pray)
+
+1. Grab the latest installer from [Releases](https://github.com/Mrtracker-new/Sortify/releases)
+2. Double-click it (you know how installers work)
+3. Click "Next" a bunch of times
+4. Find it in your Start menu
+
+> **Heads up**: Windows might freak out and say "uNkNoWn pUbLiShEr!1!" - it's fine, we're just small and broke, not malicious.
+
+#### Option 2: From Source (For the Nerds)
+
+1. Clone it:
    ```bash
    git clone https://github.com/Mrtracker-new/Sortify.git
    cd Sortify
    ```
 
-2. Create and activate a virtual environment:
+2. Make a virtual environment (trust me on this):
    ```bash
    python -m venv venv
    
-   # Linux/macOS
+   # Linux/macOS people
    source venv/bin/activate
    
-   # Windows
+   # Windows people
    venv\Scripts\activate
    ```
 
-3. Install dependencies:
+3. Install all the things:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Run the application:
+4. Fire it up:
    ```bash
    python main.py
    ```
 
-#### Option 3: Build Your Own Installer
+**Troubleshooting PyQt6 Issues:**
+If you get a DLL error on Windows (yeah, Windows things):
+```bash
+pip uninstall PyQt6 PyQt6-Qt6 PyQt6-sip
+pip install -r requirements.txt
+```
+Still broken? Install [Visual C++ Redistributables](https://aka.ms/vs/17/release/vc_redist.x64.exe) and try again.
 
-For instructions on building your own installer, see the build scripts in the `build_tools/` directory.
+#### Option 3: Build Your Own Installer (Advanced Wizardry)
 
-### 📚 User Guide
+Check the scripts in `build_tools/` if you want to compile your own installer. Not for the faint of heart.
 
-Sortify offers multiple ways to organize your files. Here's how to use each feature:
+### 📚 How to Use This Thing
+
+Pick your organizing style:
 
 <details>
 <summary><b>🔄 Real-time Auto Sort</b></summary>
@@ -191,45 +219,46 @@ Sortify offers multiple ways to organize your files. Here's how to use each feat
 - "Find duplicate files in Documents folder"
 </details>
 
-## ❓ Troubleshooting
+## ❓ Help, It's Broken!
 
 <details>
-<summary><b>Application Won't Start</b></summary>
+<summary><b>It Won't Even Open</b></summary>
 <br>
 
-1. Ensure you have Python 3.8+ installed
-2. Verify all dependencies are installed: `pip install -r requirements.txt`
-3. Check for error messages in the console
-4. Try running with administrator privileges
+1. Got Python 3.8 or newer? Check with `python --version`
+2. Try: `pip install -r requirements.txt` (sometimes dependencies get lonely)
+3. Look at the error message (I know, reading is hard, but try)
+4. Right-click → "Run as Administrator" (when in doubt, ask for more permissions)
+5. If you see a PyQt6 DLL error, see the installation section above
 </details>
 
 <details>
-<summary><b>Files Not Being Sorted</b></summary>
+<summary><b>It's Not Sorting My Stuff</b></summary>
 <br>
 
-1. Verify the source and destination folders exist and are accessible
-2. Check if you have write permissions for the destination folder
-3. Ensure the file types you're trying to sort are supported
-4. Check if any other application has locked the files
+1. Do those folders actually exist? (serious question)
+2. Can you write to that folder? Try creating a text file there manually
+3. Is the file type supported? We're good, but not magic
+4. Is another app using the file? Close Excel, for the love of... just close it
 </details>
 
 <details>
-<summary><b>AI Categorization Not Working</b></summary>
+<summary><b>The AI Seems... Not Smart</b></summary>
 <br>
 
-1. Ensure you have an internet connection for the initial model download
-2. Verify that the AI model files exist in the application directory
-3. Try restarting the application
-4. Check if your system meets the minimum RAM requirements (4GB+)
+1. First run? You need internet to download the brain
+2. Check if model files are in the app folder
+3. Turn it off and on again (classic IT solution)
+4. Got at least 4GB of RAM? The AI needs food to think
 </details>
 
 <details>
-<summary><b>Windows Defender Warnings</b></summary>
+<summary><b>Windows Is Having a Panic Attack</b></summary>
 <br>
 
-1. Add an exclusion for the Sortify executable in Windows Defender
-2. Consider using the signed installer from the releases page
-3. Check that the download source is the official GitHub repository
+1. Windows Defender freaking out? Add Sortify to the exclusions list
+2. Download from official GitHub only (duh)
+3. We're not malware, Windows is just paranoid about unsigned software
 </details>
 
 ## 🔧 Technical Details
@@ -300,18 +329,18 @@ The application uses a modular architecture with these key components:
 See [requirements.txt](requirements.txt) for a complete list of dependencies and version requirements.
 </details>
 
-## 👥 Contributing
+## 👥 Want to Help?
 
-Contributions are welcome! Here's how you can help:
+Awesome! We love contributors:
 
-### Ways to Contribute
+### How You Can Help:
 
-- 🐛 **Report bugs and issues**: Use the [GitHub Issues](https://github.com/Mrtracker-new/Sortify/issues) page to report bugs
-- 💡 **Suggest new features**: Have an idea? Share it in the [Discussions](https://github.com/Mrtracker-new/Sortify/discussions) section
-- 🧪 **Add tests**: Help improve reliability by adding tests for existing functionality
-- 📝 **Improve documentation**: Fix typos, clarify explanations, or add examples
-- 🔧 **Submit code**: Fix bugs or implement new features through pull requests
-- 🌐 **Localization**: Help translate the application to other languages
+- 🐛 **Found a bug?** Tell us on [GitHub Issues](https://github.com/Mrtracker-new/Sortify/issues)
+- 💡 **Got ideas?** Share them in [Discussions](https://github.com/Mrtracker-new/Sortify/discussions)
+- 🧪 **Write tests** (we know, nobody likes writing tests, but please?)
+- 📝 **Fix typos** (there are definitely typos)
+- 🔧 **Code stuff** (pull requests welcome!)
+- 🌐 **Translate** (not everyone speaks English... or emoji)
 
 ### Development Setup
 
@@ -323,24 +352,31 @@ Contributions are welcome! Here's how you can help:
 6. Run the test suite to ensure everything works
 7. Submit a pull request with a clear description of the changes
 
-### Coding Guidelines
+### The Rules (Please Follow Them)
 
-- Follow PEP 8 style guidelines for Python code
-- Write meaningful commit messages
-- Include docstrings for all functions, classes, and modules
-- Add unit tests for new functionality
-- Update documentation to reflect your changes
+- Use PEP 8 (Google it if you don't know)
+- Commit messages that actually explain what you did
+- Docstrings are your friend (future you will thank you)
+- Tests. TESTS. **TESTS!**
+- Update docs when you change stuff
 
 ## 📄 License
 
-Distributed under the MIT License. See [LICENSE](LICENSE) for more details.
+MIT License - basically do whatever you want, just don't sue us. See [LICENSE](LICENSE) for the legal mumbo jumbo.
 
-## 📬 Contact
+## 📬 Questions? Problems? Want to Chat?
 
 <div align="center">
 
-👤 **Author**: Rolan Lobo  
+👤 **Made by**: Rolan Lobo (hi mom!)  
 📧 **Email**: [rolanlobo901@gmail.com](mailto:rolanlobo901@gmail.com)  
-🐞 **Issues**: [GitHub Issues](https://github.com/Mrtracker-new/Sortify/issues)
+🐞 **Report Bugs**: [GitHub Issues](https://github.com/Mrtracker-new/Sortify/issues)  
+⭐ **Like it?**: Star the repo (it makes us feel good)
+
+---
+
+*P.S. - If this tool saved you from digital chaos, consider buying me a coffee... or just star the repo. Stars are free and I'm broke.*
+
+*Made with ❤️, ☕, and a lot of "why won't this work?!" moments*
 
 </div>
