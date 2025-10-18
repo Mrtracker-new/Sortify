@@ -234,8 +234,8 @@ class FileCategorizationAI:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     content = f.read(1000)  
                 return self._analyze_text_content(content)
-            except:
-                pass
+            except (IOError, UnicodeDecodeError) as e:
+                logger.warning(f"Could not read text file {file_path}: {e}")
 
         return 'misc/other'  
 

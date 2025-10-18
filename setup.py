@@ -4,7 +4,8 @@ setup(
     name="Sortify",
     version="1.0",
     description="A File Organization System",
-    author="Your Name",
+    author="Rolan Lobo",
+    author_email="rolanlobo901@gmail.com",
     packages=['core', 'ui'],
     install_requires=[
         'PyQt6',

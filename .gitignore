@@ -20,9 +20,10 @@ wheels/
 .installed.cfg
 *.egg
 
-# Logs
+# Logs and runtime files
 *.log
 debug.log
+error.log
 install_log.txt
 
 # Virtual Environment

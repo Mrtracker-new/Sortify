@@ -97,7 +97,7 @@ Define sorting rules using plain English commands.
 2. Run the installer and follow the on-screen instructions
 3. Launch Sortify from the Start menu or desktop shortcut
 
-> **Note**: If Windows Defender flags the installer, please see [DEFENDER_SOLUTIONS.md](DEFENDER_SOLUTIONS.md) for solutions.
+> **Note**: If Windows Defender flags the installer, you may need to add an exception for the application.
 
 #### Option 2: From Source (For Developers or All Platforms)
 
@@ -130,7 +130,7 @@ Define sorting rules using plain English commands.
 
 #### Option 3: Build Your Own Installer
 
-For instructions on building your own installer, see [INSTALLER_README.md](INSTALLER_README.md).
+For instructions on building your own installer, see the build scripts in the `build_tools/` directory.
 
 ### 📚 User Guide
 
@@ -227,9 +227,9 @@ Sortify offers multiple ways to organize your files. Here's how to use each feat
 <summary><b>Windows Defender Warnings</b></summary>
 <br>
 
-1. See [DEFENDER_SOLUTIONS.md](DEFENDER_SOLUTIONS.md) for detailed solutions
+1. Add an exclusion for the Sortify executable in Windows Defender
 2. Consider using the signed installer from the releases page
-3. Add an exclusion for the Sortify executable in Windows Defender
+3. Check that the download source is the official GitHub repository
 </details>
 
 ## 🔧 Technical Details
@@ -290,7 +290,7 @@ The application uses a modular architecture with these key components:
   - Understands semantic relationships in commands
   - Enhances natural language command parsing
 
-- **PyQt5**: GUI framework
+- **PyQt6**: GUI framework
   - Creates the modern user interface
   - Handles drag & drop functionality
   - Manages application windows and dialogs

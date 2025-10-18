@@ -259,73 +259,80 @@ def create_new_database(db_path):
         logging.error(f"Failed to create new database: {str(e)}")
         return False
 
+def _set_windows_file_permissions(db_path):
+    """Helper function to set Windows file permissions using multiple methods"""
+    import stat
+    import subprocess
+    
+    # Remove read-only attribute
+    try:
+        current_mode = db_path.stat().st_mode
+        if current_mode & stat.S_IREAD and not current_mode & stat.S_IWRITE:
+            os.chmod(str(db_path), stat.S_IREAD | stat.S_IWRITE)
+            logging.info(f"Removed read-only attribute from {db_path}")
+    except Exception as mode_error:
+        logging.warning(f"Could not check/set file mode: {str(mode_error)}")
+    
+    # Try icacls first
+    try:
+        subprocess.run(['icacls', str(db_path), '/grant', 'Everyone:F'], check=False)
+        logging.info(f"Set permissions using icacls on {db_path}")
+        return True
+    except Exception as icacls_error:
+        logging.warning(f"Failed to set permissions with icacls: {str(icacls_error)}")
+    
+    # Try cacls as fallback
+    try:
+        subprocess.run(['cacls', str(db_path), '/e', '/g', 'Everyone:F'], check=False)
+        logging.info(f"Set permissions using cacls on {db_path}")
+        return True
+    except Exception as cacls_error:
+        logging.warning(f"Failed to set permissions with cacls: {str(cacls_error)}")
+    
+    # Try win32security as last resort
+    try:
+        import win32security
+        import ntsecuritycon as con
+        
+        username = os.environ.get('USERNAME')
+        domain = os.environ.get('USERDOMAIN')
+        
+        security = win32security.GetFileSecurity(str(db_path), win32security.DACL_SECURITY_INFORMATION)
+        dacl = security.GetSecurityDescriptorDacl()
+        sid, _, _ = win32security.LookupAccountName(domain, username)
+        dacl.AddAccessAllowedAce(win32security.ACL_REVISION, con.FILE_ALL_ACCESS, sid)
+        security.SetSecurityDescriptorDacl(1, dacl, 0)
+        win32security.SetFileSecurity(str(db_path), win32security.DACL_SECURITY_INFORMATION, security)
+        
+        logging.info("Set Windows permissions using win32security")
+        return True
+    except ImportError:
+        logging.warning("win32security not available")
+    except Exception as win32_error:
+        logging.warning(f"Failed to set permissions with win32security: {str(win32_error)}")
+    
+    return False
+
 def set_database_permissions(db_path):
     """Set appropriate permissions on the database file"""
     try:
         if os.name == 'nt':  # Windows
-            # First, ensure the file is not read-only
-            import stat
-            try:
-                current_mode = db_path.stat().st_mode
-                if current_mode & stat.S_IREAD and not current_mode & stat.S_IWRITE:
-                    # File is read-only, remove the read-only attribute
-                    os.chmod(str(db_path), stat.S_IREAD | stat.S_IWRITE)
-                    logging.info(f"Removed read-only attribute from {db_path}")
-            except Exception as mode_error:
-                logging.warning(f"Could not check/set file mode: {str(mode_error)}")
+            success = _set_windows_file_permissions(db_path)
             
-            # Try to use icacls first (most reliable method)
-            try:
-                import subprocess
-                # Grant Everyone full control
-                subprocess.run(['icacls', str(db_path), '/grant', 'Everyone:F'], check=True)
-                logging.info(f"Set permissions using icacls on {db_path}")
-            except Exception as icacls_error:
-                logging.warning(f"Failed to set permissions with icacls: {str(icacls_error)}")
-                
-                # Try using cacls as a fallback
-                try:
-                    subprocess.run(['cacls', str(db_path), '/e', '/g', 'Everyone:F'], check=True)
-                    logging.info(f"Set permissions using cacls on {db_path}")
-                except Exception as cacls_error:
-                    logging.warning(f"Failed to set permissions with cacls: {str(cacls_error)}")
-                
-                # Fall back to win32security if available
-                try:
-                    import win32security
-                    import ntsecuritycon as con
-                    
-                    # Get current user's SID
-                    username = os.environ.get('USERNAME')
-                    domain = os.environ.get('USERDOMAIN')
-                    
-                    # Set explicit permissions for the current user
-                    security = win32security.GetFileSecurity(str(db_path), win32security.DACL_SECURITY_INFORMATION)
-                    dacl = security.GetSecurityDescriptorDacl()
-                    sid, _, _ = win32security.LookupAccountName(domain, username)
-                    dacl.AddAccessAllowedAce(win32security.ACL_REVISION, con.FILE_ALL_ACCESS, sid)
-                    security.SetSecurityDescriptorDacl(1, dacl, 0)
-                    win32security.SetFileSecurity(str(db_path), win32security.DACL_SECURITY_INFORMATION, security)
-                    
-                    logging.info("Set Windows permissions on database file using win32security")
-                except ImportError:
-                    logging.warning("win32security not available")
-                except Exception as win32_error:
-                    logging.warning(f"Failed to set permissions with win32security: {str(win32_error)}")
-            
-            # As a last resort, try to open the file in read/write mode to ensure it's accessible
+            # Verify file is writable
             try:
                 with open(db_path, 'a+') as f:
                     f.write("")
                 logging.info("Verified file is writable")
             except Exception as write_error:
                 logging.warning(f"File may still not be writable: {str(write_error)}")
+            
+            return success
         else:  # Unix-like
             import stat
             db_path.chmod(0o666)  # Read/write for all users
             logging.info("Set Unix permissions on database file")
-        
-        return True
+            return True
     except Exception as e:
         logging.error(f"Failed to set permissions: {str(e)}")
         return False
@@ -335,66 +342,11 @@ def attempt_fix_database_permissions(db_path):
     try:
         logger.info(f"Attempting to fix permissions for {db_path}")
         
-        # If file exists, try to fix its permissions
         if db_path.exists():
-            # Remove read-only attribute on Windows
-            if os.name == 'nt':
-                try:
-                    import stat
-                    current_mode = db_path.stat().st_mode
-                    if current_mode & stat.S_IREAD and not current_mode & stat.S_IWRITE:
-                        # File is read-only, remove the read-only attribute
-                        os.chmod(str(db_path), stat.S_IREAD | stat.S_IWRITE)
-                        logger.info(f"Removed read-only attribute from {db_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to change file mode: {e}")
-                
-                # Try using icacls to set permissions
-                try:
-                    import subprocess
-                    subprocess.run(['icacls', str(db_path), '/grant', 'Everyone:F'], check=False)
-                    logger.info("Set permissions using icacls")
-                except Exception as e:
-                    logger.warning(f"icacls failed: {e}")
-                    
-                    # Try using cacls as a fallback
-                    try:
-                        subprocess.run(['cacls', str(db_path), '/e', '/g', 'Everyone:F'], check=False)
-                        logger.info("Set permissions using cacls")
-                    except Exception as e:
-                        logger.warning(f"cacls failed: {e}")
-                        
-                # Try using win32security if available
-                try:
-                    import win32security
-                    import ntsecuritycon as con
-                    
-                    # Get current user's SID
-                    username = os.environ.get('USERNAME')
-                    domain = os.environ.get('USERDOMAIN')
-                    
-                    # Set explicit permissions for the current user
-                    security = win32security.GetFileSecurity(str(db_path), win32security.DACL_SECURITY_INFORMATION)
-                    dacl = security.GetSecurityDescriptorDacl()
-                    sid, _, _ = win32security.LookupAccountName(domain, username)
-                    dacl.AddAccessAllowedAce(win32security.ACL_REVISION, con.FILE_ALL_ACCESS, sid)
-                    security.SetSecurityDescriptorDacl(1, dacl, 0)
-                    win32security.SetFileSecurity(str(db_path), win32security.DACL_SECURITY_INFORMATION, security)
-                    
-                    logger.info("Set Windows permissions on database file using win32security")
-                except ImportError:
-                    logger.warning("win32security not available")
-                except Exception as e:
-                    logger.warning(f"Failed to set permissions with win32security: {e}")
-            else:
-                # Unix-like systems
-                try:
-                    db_path.chmod(0o666)  # Read/write for all users
-                    logger.info("Set Unix permissions on database file")
-                except Exception as e:
-                    logger.warning(f"Failed to set Unix permissions: {e}")
+            # Use the consolidated permission setting function
+            set_database_permissions(db_path)
         
-        # Try to verify if the file is accessible
+        # Verify if the file is accessible
         return verify_database_connection(db_path)
     except Exception as e:
         logger.error(f"Failed to fix database permissions: {e}")
