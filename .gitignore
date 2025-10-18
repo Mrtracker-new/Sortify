@@ -23,6 +23,7 @@ wheels/
 # Logs
 *.log
 debug.log
+install_log.txt
 
 # Virtual Environment
 venv/
@@ -36,7 +37,19 @@ ENV/
 .vscode/
 *.swp
 *.swo
-.DS_Store 
+.DS_Store
 
-# Installer files
+# Build and installer files
 installer/
+redist/
+*.spec
+
+# Runtime data (user-specific)
+data/*.db
+data/*.db-journal
+
+# Keep template config
+!data/config.json
+
+#sensitive files
+docs_ignore/

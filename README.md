@@ -247,7 +247,7 @@ The application uses a modular architecture with these key components:
   - `image_analyzer.py`: Analyzes image content and detects social media sources
   - `categorization.py`: Handles file categorization including social media detection
   - `file_operations.py`: Manages file sorting and organization with platform-specific rules
-  - `nlp_parser.py`: Parses natural language commands
+  - `command_parser.py`: Parses natural language commands
 
 - **UI Components**:
   - `main_window.py`: Main interface with tabs
