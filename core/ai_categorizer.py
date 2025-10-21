@@ -344,17 +344,19 @@ class AIFileClassifier:
             logging.error(f"Error during train_with_split: {e}")
             return {'accuracy': 0.0, 'error': str(e)}
         
-    def train_from_directory(self, directory_path, test_size=0.2, min_samples_per_category=3):
+    def train_from_directory(self, directory_path, test_size=0.2, min_samples_per_category=3, recursive=True, label_depth=None):
         """Train the classifier using files from a directory structure
         
-        The directory should be organized with subdirectories as categories
-        and files within each subdirectory as examples of that category.
+        By default, this will recursively scan subfolders under the root and use the
+        relative folder path as the category label (e.g., "ai_images/chatgpt").
         
         Args:
             directory_path: Path to the root directory containing category subdirectories
             test_size: Fraction of data to use for testing (default: 0.2)
             min_samples_per_category: Minimum number of samples required per category
-            
+            recursive: Whether to scan nested subfolders (default: True)
+            label_depth: Limit label to the first N path components relative to root (default: None = full path)
+        
         Returns:
             dict: Dictionary containing model performance metrics or
                   error information if training failed
@@ -368,21 +370,37 @@ class AIFileClassifier:
         categories = []
         category_counts = {}
         
-        # Iterate through category directories
-        for category_dir in directory_path.iterdir():
-            if category_dir.is_dir():
-                category = category_dir.name
-                category_files = []
-                
-                # Get all files in this category directory
-                for file_path in category_dir.glob('*'):
-                    if file_path.is_file():
-                        file_paths.append(str(file_path))
-                        categories.append(category)
-                        category_files.append(str(file_path))
-                
-                # Track count of files per category
-                category_counts[category] = len(category_files)
+        if recursive:
+            # Recursively walk all files and derive labels from relative parent path
+            for file_path in directory_path.rglob('*'):
+                if file_path.is_file():
+                    try:
+                        rel_parent = file_path.parent.relative_to(directory_path)
+                    except ValueError:
+                        # Should not happen, but guard anyway
+                        continue
+                    # Ignore files that are directly under the root (no category)
+                    if rel_parent == Path('.') or str(rel_parent).strip() == '':
+                        continue
+                    parts = rel_parent.parts
+                    if label_depth is not None and isinstance(label_depth, int) and label_depth > 0:
+                        parts = parts[:label_depth]
+                    category = '/'.join(parts)
+                    file_paths.append(str(file_path))
+                    categories.append(category)
+                    category_counts[category] = category_counts.get(category, 0) + 1
+        else:
+            # Backward-compatible non-recursive behavior (immediate subfolders only)
+            for category_dir in directory_path.iterdir():
+                if category_dir.is_dir():
+                    category = category_dir.name
+                    category_files = []
+                    for file_path in category_dir.glob('*'):
+                        if file_path.is_file():
+                            file_paths.append(str(file_path))
+                            categories.append(category)
+                            category_files.append(str(file_path))
+                    category_counts[category] = len(category_files)
         
         if not file_paths:
             logging.warning(f"No training files found in {directory_path}")
@@ -401,7 +419,9 @@ class AIFileClassifier:
             }
             
         # Train the model with the collected files
-        logging.info(f"Training from directory with {len(file_paths)} files in {len(set(categories))} categories")
+        logging.info(
+            f"Training from directory with {len(file_paths)} files in {len(set(categories))} categories (recursive={recursive}, label_depth={label_depth})"
+        )
         metrics = self.train_with_split(file_paths, categories, test_size)
         
         # Add category distribution information to metrics

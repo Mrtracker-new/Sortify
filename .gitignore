@@ -54,3 +54,4 @@ data/*.db-journal
 
 #sensitive files
 docs_ignore/
+data/

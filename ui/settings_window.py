@@ -1,7 +1,8 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                            QTabWidget, QLineEdit, QFileDialog, QCheckBox, QComboBox,
-                           QSpinBox, QTimeEdit, QListWidget, QMessageBox, QGroupBox)
-from PyQt6.QtCore import Qt, QTime
+                           QSpinBox, QTimeEdit, QListWidget, QMessageBox, QGroupBox, QProgressDialog,
+                           QFormLayout, QSpacerItem, QSizePolicy)
+from PyQt6.QtCore import Qt, QTime, QThread, pyqtSignal, QTimer
 from pathlib import Path
 import logging
 
@@ -31,7 +32,12 @@ class SettingsWindow(QWidget):
     def setup_ui(self):
         """Set up the settings UI"""
         self.setWindowTitle("Sortify Settings")
-        self.setMinimumSize(600, 500)
+        self.setMinimumSize(700, 540)
+
+        # Apply a lightweight modern style
+        self.apply_styles()
+        # Ensure stylesheet backgrounds are applied (prevents transparency)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         
         main_layout = QVBoxLayout(self)
         
@@ -56,10 +62,17 @@ class SettingsWindow(QWidget):
         # Add tabs to main layout
         main_layout.addWidget(self.tabs)
         
-        # Add save button
+        # Footer buttons
+        footer = QHBoxLayout()
+        footer.addItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
         save_button = QPushButton("Save Settings")
+        save_button.setObjectName("primaryButton")
         save_button.clicked.connect(self.save_settings)
-        main_layout.addWidget(save_button)
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.close)
+        footer.addWidget(cancel_button)
+        footer.addWidget(save_button)
+        main_layout.addLayout(footer)
         
     def setup_auto_sort_tab(self):
         """Set up the auto sort tab"""
@@ -194,9 +207,14 @@ class SettingsWindow(QWidget):
     def setup_ai_tab(self):
         """Set up the AI categorization tab"""
         layout = QVBoxLayout(self.ai_tab)
+
+        header = QLabel("AI Categorization")
+        header.setObjectName("sectionHeader")
+        layout.addWidget(header)
         
         # Enable AI categorization
         self.ai_enabled = QCheckBox("Enable AI-Based Categorization")
+        self.ai_enabled.setToolTip("Use the trained model to improve file categorization beyond simple rules")
         layout.addWidget(self.ai_enabled)
         
         # Model settings
@@ -204,25 +222,43 @@ class SettingsWindow(QWidget):
         model_layout = QVBoxLayout(model_group)
         
         # Model path
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        
         model_path_layout = QHBoxLayout()
         self.model_path = QLineEdit()
-        self.model_path.setPlaceholderText("Path to trained model...")
+        self.model_path.setPlaceholderText("Path to trained model (ai_model.pkl)")
         self.model_path.setReadOnly(True)
+        self.model_path.setToolTip("Location where the trained model is saved")
         
-        self.browse_model = QPushButton("Browse...")
+        self.browse_model = QPushButton("Browse…")
         self.browse_model.clicked.connect(self.select_model_path)
         
         model_path_layout.addWidget(self.model_path)
         model_path_layout.addWidget(self.browse_model)
+        form.addRow("Model file:", model_path_layout)
+        
+        # Model status
+        self.model_status_label = QLabel("No model loaded")
+        self.model_status_label.setObjectName("statusLabel")
+        form.addRow("Status:", self.model_status_label)
         
         # Training
         training_layout = QHBoxLayout()
         self.train_model_button = QPushButton("Train New Model")
+        self.train_model_button.setObjectName("primaryButton")
+        self.train_model_button.setToolTip("Select a root folder organized by subfolders (categories) to train a classifier")
         self.train_model_button.clicked.connect(self.train_ai_model)
         training_layout.addWidget(self.train_model_button)
         
-        model_layout.addLayout(model_path_layout)
+        model_layout.addLayout(form)
         model_layout.addLayout(training_layout)
+
+        # Training metrics
+        self.training_metrics_label = QLabel("")
+        self.training_metrics_label.setObjectName("subtleLabel")
+        self.training_metrics_label.setWordWrap(True)
+        model_layout.addWidget(self.training_metrics_label)
         
         layout.addWidget(model_group)
         
@@ -231,6 +267,7 @@ class SettingsWindow(QWidget):
         image_layout = QVBoxLayout(image_group)
         
         self.enable_image_analysis = QCheckBox("Enable Image Content Analysis")
+        self.enable_image_analysis.setToolTip("Analyze image content (faces, screenshots, AI hints) to assist categorization")
         image_layout.addWidget(self.enable_image_analysis)
         
         # Image categories
@@ -248,6 +285,26 @@ class SettingsWindow(QWidget):
         
         layout.addWidget(image_group)
         layout.addStretch()
+        
+    def apply_styles(self):
+        """Apply a lightweight, modern stylesheet to the settings window"""
+        self.setStyleSheet(
+            """
+            QWidget { font-size: 12px; background-color: #2b2b2b; }
+            QTabWidget::pane { border: 1px solid #3a3a3a; border-radius: 6px; background: #2b2b2b; }
+            QTabBar::tab { padding: 8px 14px; }
+            QGroupBox { font-weight: 600; border: 1px solid #3a3a3a; border-radius: 6px; margin-top: 12px; background-color: #323232; }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
+            #sectionHeader { font-size: 16px; font-weight: bold; margin-bottom: 6px; }
+            #statusLabel { color: #4caf50; }
+            #subtleLabel { color: #b0b0b0; }
+            QPushButton#primaryButton { background: #2d7dff; color: white; padding: 6px 12px; border-radius: 4px; }
+            QPushButton#primaryButton:hover { background: #1f66d1; }
+            QPushButton { padding: 6px 10px; }
+            QLineEdit { padding: 6px; background: #1f1f1f; border: 1px solid #3a3a3a; border-radius: 4px; color: #ddd; }
+            QCheckBox, QLabel { color: #ddd; }
+            """
+        )
         
     def setup_commands_tab(self):
         """Set up the natural language commands tab"""
@@ -491,7 +548,7 @@ class SettingsWindow(QWidget):
             self.jobs_list.takeItem(row)
             
     def train_ai_model(self):
-        """Train a new AI model from a directory of categorized files"""
+        """Train a new AI model from a directory of categorized files (runs in background)"""
         # Get the last training directory from config if available
         last_dir = ''
         if self.config_manager:
@@ -512,38 +569,139 @@ class SettingsWindow(QWidget):
             self.config_manager.set_last_directory('training', training_dir)
             
         try:
-            # Show progress message
-            msg = QMessageBox(self)
-            msg.setWindowTitle("Training Model")
-            msg.setText("Training AI model. This may take a few minutes...")
-            msg.setStandardButtons(QMessageBox.StandardButton.NoButton)
-            msg.show()
+            # Disable button to prevent double clicks
+            self.train_model_button.setEnabled(False)
             
-            # Import and initialize the AI classifier
-            from core.ai_categorizer import AIFileClassifier
-            self.ai_classifier = AIFileClassifier()
+            # Show progress dialog (non-blocking, busy indicator)
+            self._training_progress = QProgressDialog("Training AI model. This may take a few minutes...", None, 0, 0, self)
+            self._training_progress.setWindowTitle("Training Model")
+            self._training_progress.setWindowModality(Qt.WindowModality.WindowModal)
+            self._training_progress.setCancelButton(None)
+            self._training_progress.setMinimumDuration(0)
+            self._training_progress.show()
             
-            # Train the model
-            self.ai_classifier.train_from_directory(training_dir)
+            # Background worker
+            class TrainWorker(QThread):
+                finished_ok = pyqtSignal(dict, object)
+                failed = pyqtSignal(str)
+                def __init__(self, root):
+                    super().__init__()
+                    self.root = root
+                def run(self):
+                    try:
+                        from core.ai_categorizer import AIFileClassifier
+                        clf = AIFileClassifier()
+                        metrics = clf.train_from_directory(self.root, recursive=True)
+                        self.finished_ok.emit(metrics, clf)
+                    except Exception as e:
+                        self.failed.emit(str(e))
+            
+            self._train_worker = TrainWorker(training_dir)
+            self._train_worker.finished_ok.connect(self._on_training_done)
+            self._train_worker.failed.connect(self._on_training_error)
+            # Always close the dialog when the thread finishes, even if signals fail
+            self._train_worker.finished.connect(self._on_training_finalize_anyway)
+            self._train_worker.start()
+
+            # Start a watchdog timer to ensure the dialog closes when the worker stops
+            self._train_watchdog = QTimer(self)
+            self._train_watchdog.setInterval(1000)
+            self._train_watchdog.timeout.connect(self._check_training_watchdog)
+            self._train_watchdog.start()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Training Error", f"Error starting training: {str(e)}")
+            logging.error(f"Error starting training: {e}")
+
+    def _on_training_done(self, metrics, classifier):
+        """Handle training completion from background thread"""
+        try:
+            # Assign the trained classifier
+            self.ai_classifier = classifier
             
             # Save the model
             save_path = Path('data/ai_model.pkl')
             save_path.parent.mkdir(exist_ok=True)
             self.ai_classifier.save_model(str(save_path))
-            
-            # Update the model path field
             self.model_path.setText(str(save_path))
+            self.model_status_label.setText(f"Loaded • {save_path}")
             
-            # Close progress message
-            msg.close()
+            # Close progress and re-enable UI
+            if hasattr(self, '_training_progress') and self._training_progress:
+                self._training_progress.close()
+                self._training_progress.deleteLater()
+                self._training_progress = None
+            self.train_model_button.setEnabled(True)
             
-            QMessageBox.information(self, "Training Complete", 
-                                   f"AI model trained and saved to {save_path}")
-            
+            # Show metrics summary
+            if metrics and metrics.get('success'):
+                acc = metrics.get('accuracy', 0.0)
+                prec = metrics.get('precision', 0.0)
+                rec = metrics.get('recall', 0.0)
+                f1 = metrics.get('f1_score', 0.0)
+                cats = metrics.get('categories', metrics.get('categories_count', []))
+                cats_count = len(cats) if isinstance(cats, list) else int(cats)
+                summary = f"Accuracy {acc:.3f} • Precision {prec:.3f} • Recall {rec:.3f} • F1 {f1:.3f} • Categories {cats_count}"
+                self.training_metrics_label.setText(summary)
+                QMessageBox.information(self, "Training Complete", f"Saved to {save_path}\n\n{summary}")
+            else:
+                err = metrics.get('error', 'Unknown error') if isinstance(metrics, dict) else 'Unknown error'
+                self.training_metrics_label.setText(f"Training warning: {err}")
+                QMessageBox.warning(self, "Training Finished with Warnings", f"Model saved to {save_path}\nBut training reported: {err}")
         except Exception as e:
-            QMessageBox.critical(self, "Training Error", 
-                               f"Error training AI model: {str(e)}")
-            logging.error(f"Error training AI model: {e}")
+            QMessageBox.critical(self, "Training Error", f"Error finalizing training: {str(e)}")
+            logging.error(f"Error finalizing training: {e}")
+        finally:
+            self._train_worker = None
+            if hasattr(self, '_train_watchdog') and self._train_watchdog:
+                self._train_watchdog.stop()
+                self._train_watchdog = None
+
+    def _on_training_error(self, error_msg):
+        """Handle training error from background thread"""
+        try:
+            if hasattr(self, '_training_progress') and self._training_progress:
+                self._training_progress.close()
+                self._training_progress.deleteLater()
+                self._training_progress = None
+            self.train_model_button.setEnabled(True)
+            QMessageBox.critical(self, "Training Error", error_msg)
+            logging.error(f"Training error: {error_msg}")
+        finally:
+            self._train_worker = None
+
+    def _on_training_finalize_anyway(self):
+        """Fail-safe: ensure progress dialog is closed and UI re-enabled when thread finishes."""
+        try:
+            if hasattr(self, '_training_progress') and self._training_progress:
+                self._training_progress.close()
+                self._training_progress.deleteLater()
+                self._training_progress = None
+            self.train_model_button.setEnabled(True)
+            if hasattr(self, '_train_watchdog') and self._train_watchdog:
+                self._train_watchdog.stop()
+                self._train_watchdog = None
+        except Exception:
+            pass
+
+    def _check_training_watchdog(self):
+        """Timer-based watchdog to close the dialog if the worker has stopped."""
+        try:
+            running = self._train_worker.isRunning() if hasattr(self, '_train_worker') and self._train_worker else False
+            if not running:
+                if hasattr(self, '_training_progress') and self._training_progress:
+                    self._training_progress.close()
+                    self._training_progress.deleteLater()
+                    self._training_progress = None
+                self.train_model_button.setEnabled(True)
+                if hasattr(self, '_train_watchdog') and self._train_watchdog:
+                    self._train_watchdog.stop()
+                    self._train_watchdog = None
+        except Exception:
+            # Stop watchdog silently on any unexpected error
+            if hasattr(self, '_train_watchdog') and self._train_watchdog:
+                self._train_watchdog.stop()
+                self._train_watchdog = None
             
     def execute_command(self):
         """Execute a natural language command"""
