@@ -12,34 +12,31 @@ try:
     import spacy
     import spacy.util
     
-    # Try to find the model in various locations
-    possible_model_paths = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'en_core_web_sm'),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dist', 'Sortify.exe', 'en_core_web_sm'),
-    ]
-    
-    # When running from PyInstaller bundle
+    # When running from PyInstaller bundle, set up model paths
     if getattr(sys, '_MEIPASS', None):
-        possible_model_paths.append(os.path.join(sys._MEIPASS, 'en_core_web_sm'))
-        # Also try the executable directory
-        possible_model_paths.append(os.path.join(os.path.dirname(sys.executable), 'en_core_web_sm'))
+        possible_model_paths = [
+            os.path.join(sys._MEIPASS, 'en_core_web_sm'),
+            os.path.join(os.path.dirname(sys.executable), 'en_core_web_sm'),
+        ]
+        
+        for model_path in possible_model_paths:
+            if os.path.exists(model_path):
+                print(f"Setting spaCy model path to: {model_path}")
+                spacy.util.set_data_path(model_path)
+                break
     
-    # Try each path and use the first one that exists
-    for model_path in possible_model_paths:
-        if os.path.exists(model_path):
-            print(f"Setting spaCy model path to: {model_path}")
-            spacy.util.set_data_path(model_path)
-            break
-    
-    # As a fallback, try to import the model directly
+    # Test if model can be loaded
     try:
         import en_core_web_sm
-        print(f"Found spaCy model as module at: {en_core_web_sm.__path__[0]}")
+        print(f"✓ spaCy model found at: {en_core_web_sm.__path__[0]}")
     except ImportError:
-        print("Could not import en_core_web_sm as a module")
+        print("⚠ Warning: spaCy model 'en_core_web_sm' not found.")
+        print("  The application will start but AI features will be limited.")
+        print("  To install the model, run: python -m spacy download en_core_web_sm")
         
 except Exception as e:
-    print(f"Error setting spaCy model path: {e}")
+    print(f"⚠ Warning: Error initializing spaCy: {e}")
+    print("  The application will continue with basic file categorization.")
 
 # Now import the rest of the modules
 from PyQt6.QtWidgets import QApplication, QMessageBox

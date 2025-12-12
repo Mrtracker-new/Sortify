@@ -11,6 +11,7 @@ logger = logging.getLogger('Sortify')
 class FileCategorizationAI:
     def __init__(self):
         self.nlp = None
+        self.ai_enabled = False
         
         # Define categories here so they're always available
         self.categories = {
@@ -77,95 +78,22 @@ class FileCategorizationAI:
             }
         }
         
+        # Try to load spaCy model, but don't fail if it's not available
         try:
-            # First try to load the model normally
-            logger.info("Attempting to load spaCy model using standard method")
+            logger.info("Attempting to load spaCy model")
             self.nlp = spacy.load('en_core_web_sm')
-            logger.info("Successfully loaded spaCy model using standard method")
+            self.ai_enabled = True
+            logger.info("✓ spaCy model loaded - AI categorization enabled")
         except OSError as e:
-            logger.warning(f"Standard spaCy model loading failed: {e}")
-            # Try multiple fallback methods
-            self._load_model_with_fallbacks(e)
-        
-        if self.nlp is None:
-            logger.error("Failed to load spaCy model after all attempts")
-            raise ValueError("Could not load spaCy model. Please ensure it is installed correctly.")
-        
-    def _load_model_with_fallbacks(self, original_error):
-        # Method 1: When running from PyInstaller bundle
-        if hasattr(sys, '_MEIPASS'):
-            # Try to load from the bundled model directory
-            model_path = os.path.join(sys._MEIPASS, 'en_core_web_sm')
-            logger.info(f"Trying to load from PyInstaller bundle: {model_path}")
-            if os.path.exists(model_path):
-                try:
-                    self.nlp = spacy.load(model_path)
-                    logger.info(f"Successfully loaded model from {model_path}")
-                    return
-                except Exception as e:
-                    logger.warning(f"Failed to load from PyInstaller bundle: {e}")
-            else:
-                logger.warning(f"Model path does not exist: {model_path}")
-            
-            # Try the executable directory
-            model_path = os.path.join(os.path.dirname(sys.executable), 'en_core_web_sm')
-            logger.info(f"Trying executable directory: {model_path}")
-            if os.path.exists(model_path):
-                try:
-                    self.nlp = spacy.load(model_path)
-                    logger.info(f"Successfully loaded model from {model_path}")
-                    return
-                except Exception as e:
-                    logger.warning(f"Failed to load from executable directory: {e}")
-            else:
-                logger.warning(f"Model path does not exist: {model_path}")
-            
-            # Try the direct model directory in dist
-            model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'dist', 'Sortify.exe', 'en_core_web_sm')
-            logger.info(f"Trying alternate path: {model_path}")
-            if os.path.exists(model_path):
-                try:
-                    self.nlp = spacy.load(model_path)
-                    logger.info(f"Successfully loaded model from {model_path}")
-                    return
-                except Exception as e:
-                    logger.warning(f"Failed to load from alternate path: {e}")
-            else:
-                logger.warning(f"Model path does not exist: {model_path}")
-        
-        # Method 2: Try to find the model in site-packages
-        try:
-            import site
-            for site_path in site.getsitepackages():
-                model_path = os.path.join(site_path, 'en_core_web_sm')
-                logger.info(f"Trying site-packages path: {model_path}")
-                if os.path.exists(model_path):
-                    try:
-                        self.nlp = spacy.load(model_path)
-                        logger.info(f"Successfully loaded model from {model_path}")
-                        return
-                    except Exception as e:
-                        logger.warning(f"Failed to load from site-packages: {e}")
-                else:
-                    logger.warning(f"Model path does not exist: {model_path}")
+            logger.warning(f"spaCy model not available: {e}")
+            logger.info("Continuing with basic pattern-based categorization")
+            self.ai_enabled = False
         except Exception as e:
-            logger.warning(f"Error checking site-packages: {e}")
+            logger.warning(f"Unexpected error loading spaCy: {e}")
+            logger.info("Continuing with basic pattern-based categorization")
+            self.ai_enabled = False
         
-        # Method 3: Try loading as a module
-        logger.info("Trying to load as a module")
-        try:
-            import en_core_web_sm
-            self.nlp = en_core_web_sm.load()
-            logger.info("Successfully loaded model as a module")
-            return
-        except ImportError as e:
-            logger.warning(f"Failed to import en_core_web_sm module: {e}")
-        except Exception as e:
-            logger.warning(f"Error loading model as module: {e}")
-        
-        # If we get here, all methods failed
-        logger.error("All model loading methods failed")
-        raise original_error
+
 
     def categorize_file(self, file_path):
         """Categorize a file based on its content and metadata"""
@@ -245,10 +173,8 @@ class FileCategorizationAI:
         return mime_type and mime_type.startswith('text')
 
     def _analyze_text_content(self, content):
-        """Analyze text content using spaCy"""
-        doc = self.nlp(content)
-        
-        
+        """Analyze text content using spaCy or basic pattern matching"""
+        # Basic code detection patterns (works without NLP)
         code_indicators = {
             'python': ['def ', 'class ', 'import ', 'print('],
             'web': ['<html>', '<body>', 'function()', 'const '],
@@ -258,9 +184,15 @@ class FileCategorizationAI:
         for lang, indicators in code_indicators.items():
             if any(indicator in content for indicator in indicators):
                 return f'code/{lang}'
-
         
-        if len(doc.ents) > 0:  
-            return 'documents/text'
-            
+        # If AI is enabled, use spaCy for entity detection
+        if self.ai_enabled and self.nlp:
+            try:
+                doc = self.nlp(content)
+                if len(doc.ents) > 0:  # Has named entities
+                    return 'documents/text'
+            except Exception as e:
+                logger.warning(f"Error during NLP analysis: {e}")
+        
+        # Default to text documents
         return 'documents/text'
