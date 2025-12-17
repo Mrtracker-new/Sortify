@@ -40,7 +40,7 @@ except Exception as e:
 
 # Now import the rest of the modules
 from PyQt6.QtWidgets import QApplication, QMessageBox
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, Qt
 
 # Set up logging
 log_file = Path(os.path.expanduser('~')) / 'AppData' / 'Roaming' / 'Sortify' / 'debug.log'
@@ -363,11 +363,49 @@ def main():
     logger.info(f"SQLite version: {sqlite3.sqlite_version}")
     logger.info(f"Running from: {get_base_path()}")
     
+    # Splash Screen
+    from PyQt6.QtGui import QPixmap, QColor
+    from PyQt6.QtWidgets import QSplashScreen
+    
+    splash_base = get_base_path() / 'resources' / 'icons' / 'rnr.png'
+    if not splash_base.exists():
+        # Fallback if png not found, try ico or just no splash
+        splash_base = get_base_path() / 'resources' / 'icons' / 'app_icon.ico'
+        
+    splash = None
+    if splash_base.exists():
+        # Create splash
+        pixmap = QPixmap(str(splash_base))
+        # Optional: Resize if too big
+        if pixmap.width() > 600:
+             pixmap = pixmap.scaledToWidth(600, Qt.TransformationMode.SmoothTransformation)
+             
+        splash = QSplashScreen(pixmap, Qt.WindowType.WindowStaysOnTopHint)
+        splash.show()
+        splash.showMessage("Starting Sortify...", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft, QColor("white"))
+        app.processEvents()
+    
+    # helper to apply theme - Apply EARLY for splash to look right if we styled it (we didn't yet, but good practice)
+    try:
+        from ui.theme_manager import ThemeManager
+        theme_manager = ThemeManager()
+        app.setStyleSheet(theme_manager.get_stylesheet())
+    except Exception as e:
+        logger.error(f"Failed to apply theme: {e}")
+    
+    if splash:
+        splash.showMessage("Verifying database...", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft, QColor("white"))
+        app.processEvents()
+        
     # Ensure database file exists and is accessible
     if not ensure_database_file():
         logger.critical("Failed to ensure database file, exiting application")
         sys.exit(1)
     
+    if splash:
+        splash.showMessage("Loading interface...", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft, QColor("white"))
+        app.processEvents()
+
     # Import UI modules here to avoid circular imports
     from ui.main_window import MainWindow
     from core.history import HistoryManager
@@ -385,6 +423,9 @@ def main():
         except Exception as e:
             logger.error(f"Failed to initialize history manager (attempt {attempt+1}): {e}")
             if attempt < max_retries - 1:
+                if splash:
+                     splash.showMessage(f"Retrying database connection ({attempt+1})...", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft, QColor("yellow"))
+                     app.processEvents()
                 logger.info(f"Retrying in {retry_delay} seconds...")
                 time.sleep(retry_delay)
             else:
@@ -394,13 +435,21 @@ def main():
                     "Please ensure no other instance of the application is running "
                     "and you have write permissions to the data directory."
                 )
+                if splash: splash.close()
                 QMessageBox.critical(None, "Database Error", error_msg)
                 logger.critical("Failed to initialize history manager after all attempts, exiting application")
                 sys.exit(1)
     
+    if splash:
+        splash.showMessage("Readying UI...", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft, QColor("white"))
+        app.processEvents()
+        
     # Create and show main window
     main_window = MainWindow(history_manager)
     main_window.show()
+    
+    if splash:
+        splash.finish(main_window)
     
     # Start the application event loop
     exit_code = app.exec()
