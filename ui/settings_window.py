@@ -35,7 +35,8 @@ class SettingsWindow(QWidget):
         self.setMinimumSize(700, 540)
 
         # Apply a lightweight modern style
-        self.apply_styles()
+        self.setMinimumSize(700, 540)
+
         # Ensure stylesheet backgrounds are applied (prevents transparency)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         
@@ -73,6 +74,9 @@ class SettingsWindow(QWidget):
         footer.addWidget(cancel_button)
         footer.addWidget(save_button)
         main_layout.addLayout(footer)
+
+        # Apply styles after all widgets are created
+        self.apply_styles()
         
     def setup_auto_sort_tab(self):
         """Set up the auto sort tab"""
@@ -287,24 +291,18 @@ class SettingsWindow(QWidget):
         layout.addStretch()
         
     def apply_styles(self):
-        """Apply a lightweight, modern stylesheet to the settings window"""
-        self.setStyleSheet(
-            """
-            QWidget { font-size: 12px; background-color: #2b2b2b; }
-            QTabWidget::pane { border: 1px solid #3a3a3a; border-radius: 6px; background: #2b2b2b; }
-            QTabBar::tab { padding: 8px 14px; }
-            QGroupBox { font-weight: 600; border: 1px solid #3a3a3a; border-radius: 6px; margin-top: 12px; background-color: #323232; }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
-            #sectionHeader { font-size: 16px; font-weight: bold; margin-bottom: 6px; }
-            #statusLabel { color: #4caf50; }
-            #subtleLabel { color: #b0b0b0; }
-            QPushButton#primaryButton { background: #2d7dff; color: white; padding: 6px 12px; border-radius: 4px; }
-            QPushButton#primaryButton:hover { background: #1f66d1; }
-            QPushButton { padding: 6px 10px; }
-            QLineEdit { padding: 6px; background: #1f1f1f; border: 1px solid #3a3a3a; border-radius: 4px; color: #ddd; }
-            QCheckBox, QLabel { color: #ddd; }
-            """
-        )
+        """
+        Apply object IDs to widgets so they can be targeted by the global stylesheet.
+        The styles themselves are now in resources/theme.qss.
+        """
+        # Assign object names for specific styling
+        self.ai_enabled.setObjectName("aiCheckbox")
+        self.model_status_label.setObjectName("statusLabel")
+        self.training_metrics_label.setObjectName("subtleLabel")
+        
+        # Primary buttons are already set in setup_ui but let's ensure consistency
+        # Find children and apply if needed, though they are set in other methods.
+        pass
         
     def setup_commands_tab(self):
         """Set up the natural language commands tab"""
