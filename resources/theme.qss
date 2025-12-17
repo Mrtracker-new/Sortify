@@ -1,0 +1,231 @@
+/* Global Defaults */
+QWidget {
+    background-color: @bg_primary;
+    color: @text_primary;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 13px;
+    selection-background-color: @primary;
+    selection-color: white;
+}
+
+/* Main Window */
+QMainWindow {
+    background-color: @bg_primary;
+}
+
+/* Labels */
+QLabel {
+    color: @text_primary;
+    border: none;
+    padding: 2px;
+}
+
+QLabel#titleLabel {
+    font-size: 24px;
+    font-weight: bold;
+    color: @text_primary;
+    padding: 12px 0;
+}
+
+QLabel#sectionHeader {
+    font-size: 16px;
+    font-weight: 600;
+    color: @text_primary;
+    margin-bottom: 8px;
+}
+
+QLabel#subtleLabel {
+    color: @text_muted;
+}
+
+QLabel#statusLabel {
+    color: @success;
+}
+
+/* Group Boxes */
+QGroupBox {
+    border: 1px solid @border_color;
+    border-radius: 6px;
+    margin-top: 1.2em; /* Leave space for title */
+    padding-top: 10px;
+    background-color: @bg_secondary;
+    font-weight: 600;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top chat;
+    padding: 0 6px;
+    left: 10px;
+    color: @text_secondary;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: @bg_tertiary;
+    border: 1px solid @border_color;
+    border-radius: 6px;
+    color: @text_primary;
+    padding: 6px 14px;
+    min-height: 24px;
+}
+
+QPushButton:hover {
+    background-color: @border_light;
+    border-color: @border_light;
+}
+
+QPushButton:pressed {
+    background-color: @bg_secondary;
+}
+
+QPushButton:disabled {
+    background-color: @bg_secondary;
+    color: @text_muted;
+    border-color: @bg_secondary;
+}
+
+/* Primary Action Button (Blue) */
+QPushButton#primaryButton, QPushButton#move_button, QPushButton#organize_button {
+    background-color: @primary;
+    border: 1px solid @primary;
+    color: white;
+    font-weight: 600;
+}
+
+QPushButton#primaryButton:hover, QPushButton#move_button:hover, QPushButton#organize_button:hover {
+    background-color: @primary_hover;
+    border-color: @primary_hover;
+}
+
+QPushButton#primaryButton:pressed, QPushButton#move_button:pressed, QPushButton#organize_button:pressed {
+    background-color: @primary_pressed;
+    border-color: @primary_pressed;
+}
+
+/* Input Fields */
+QLineEdit {
+    background-color: @input_bg;
+    border: 1px solid @border_color;
+    border-radius: 4px;
+    padding: 6px;
+    color: @text_primary;
+    selection-background-color: @primary;
+}
+
+QLineEdit:focus {
+    border: 1px solid @primary;
+}
+
+QLineEdit:read-only {
+    background-color: @bg_secondary;
+    color: @text_muted;
+}
+
+/* Combo/Spin Boxes */
+QComboBox, QSpinBox, QTimeEdit {
+    background-color: @input_bg;
+    border: 1px solid @border_color;
+    border-radius: 4px;
+    padding: 5px;
+    color: @text_primary;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 20px;
+}
+
+/* Lists */
+QListWidget {
+    background-color: @bg_secondary;
+    border: 1px solid @border_color;
+    border-radius: 6px;
+    outline: none;
+}
+
+QListWidget::item {
+    padding: 8px 10px;
+    border-bottom: 1px solid @bg_primary;
+}
+
+QListWidget::item:hover {
+    background-color: @list_item_hover;
+}
+
+QListWidget::item:selected {
+    background-color: @list_item_selected;
+    color: white;
+    border-left: 3px solid @primary;
+}
+
+/* Tab Widget */
+QTabWidget::pane {
+    border: 1px solid @border_color;
+    background-color: @bg_secondary;
+    border-radius: 6px;
+    top: -1px; /* Align with tabs */
+}
+
+QTabBar::tab {
+    background-color: @bg_primary;
+    color: @text_secondary;
+    padding: 8px 16px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    margin-right: 4px;
+    border: 1px solid transparent; /* Reserve space */
+}
+
+QTabBar::tab:selected {
+    background-color: @bg_secondary;
+    color: @text_primary;
+    border-top: 2px solid @primary; /* Active indicator */
+    border-bottom: 1px solid @bg_secondary; /* Blend with pane */
+}
+
+QTabBar::tab:hover:!selected {
+    background-color: @bg_tertiary;
+    color: @text_primary;
+}
+
+/* Progress Bar */
+QProgressBar {
+    border: none;
+    background-color: @bg_tertiary;
+    border-radius: 4px;
+    text-align: center;
+    color: @text_primary;
+    font-weight: bold;
+}
+
+QProgressBar::chunk {
+    background-color: @success;
+    border-radius: 4px;
+}
+
+/* Scrollbars */
+QScrollBar:vertical {
+    background-color: @bg_primary;
+    width: 10px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background-color: @border_light;
+    min-height: 20px;
+    border-radius: 5px;
+    margin: 2px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: @text_muted;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
