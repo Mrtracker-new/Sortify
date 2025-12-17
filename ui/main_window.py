@@ -38,6 +38,46 @@ class ProcessingThread(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
+class ModelLoaderThread(QThread):
+    """
+    Background thread to load heavy AI models without freezing the UI.
+    """
+    finished = pyqtSignal(object, object, object) # ai_classifier, image_analyzer, command_parser
+    
+    def run(self):
+        try:
+            # Import here to avoid main thread lag if they do top-level loading
+            from core.ai_categorizer import AIFileClassifier
+            from core.image_analyzer import ImageAnalyzer
+            from core.command_parser import CommandParser
+            
+            logging.info("Starting background model loading...")
+            
+            # Initialize AI classifier
+            ai_classifier = None
+            model_path = Path('data/ai_model.pkl')
+            if model_path.exists():
+                ai_classifier = AIFileClassifier(str(model_path))
+                logging.info("Loaded AI classifier model")
+            else:
+                ai_classifier = AIFileClassifier()
+                logging.info("Created new AI classifier")
+                
+            # Initialize image analyzer
+            image_analyzer = ImageAnalyzer()
+            logging.info("Initialized image analyzer")
+            
+            # Initialize command parser
+            command_parser = CommandParser()
+            logging.info("Initialized command parser")
+            
+            self.finished.emit(ai_classifier, image_analyzer, command_parser)
+            
+        except Exception as e:
+            logging.error(f"Error in model loader thread: {e}")
+            # Emit None to signal failure/partial loading
+            self.finished.emit(None, None, None)
+
 class MainWindow(QMainWindow):
     def __init__(self, history_manager):
         super().__init__()
@@ -49,15 +89,14 @@ class MainWindow(QMainWindow):
         self.file_ops = None
         self.watcher = None
         
-        # Initialize categorizer
+        # Initialize categorizer (lightweight)
         from core.categorization import FileCategorizationAI
         self.categorizer = FileCategorizationAI()
         
-        # Initialize scheduler with required parameters - will initialize file_ops when needed
+        # Initialize scheduler with required parameters
         self.scheduler = SortScheduler(None, self.categorizer)
-        # Don't start scheduler until file_ops is initialized
-        # self.scheduler.start()  # Enable auto-start
         
+        # Advanced features will be loaded in background
         self.ai_classifier = None
         self.image_analyzer = None
         self.command_parser = None
@@ -158,27 +197,25 @@ class MainWindow(QMainWindow):
         self.init_advanced_features()
 
     def init_advanced_features(self):
-        """Initialize advanced features"""
-        try:
-            # Initialize AI classifier
-            model_path = Path('data/ai_model.pkl')
-            if model_path.exists():
-                self.ai_classifier = AIFileClassifier(str(model_path))
-                logging.info("Loaded AI classifier model")
-            else:
-                self.ai_classifier = AIFileClassifier()
-                logging.info("Created new AI classifier")
-                
-            # Initialize image analyzer
-            self.image_analyzer = ImageAnalyzer()
-            logging.info("Initialized image analyzer")
-            
-            # Initialize command parser
-            self.command_parser = CommandParser()
-            logging.info("Initialized command parser")
-            
-        except Exception as e:
-            logging.error(f"Error initializing advanced features: {e}")
+        """Start background loading of advanced features"""
+        self.status_bar.showMessage("Loading AI models...")
+        
+        self.loader_thread = ModelLoaderThread()
+        self.loader_thread.finished.connect(self.on_models_loaded)
+        self.loader_thread.start()
+        
+    def on_models_loaded(self, ai_classifier, image_analyzer, command_parser):
+        """Handle completion of background model loading"""
+        self.ai_classifier = ai_classifier
+        self.image_analyzer = image_analyzer
+        self.command_parser = command_parser
+        
+        if self.ai_classifier:
+            self.status_bar.showMessage("Ready (AI Enabled)")
+            logging.info("Advanced features accepted and loaded.")
+        else:
+            self.status_bar.showMessage("Ready (Basic Mode)")
+            logging.warning("Advanced features failed to load.")
 
     def setup_ui(self):
         self.setWindowTitle("Sortify - Smart File Organizer")
@@ -261,6 +298,7 @@ class MainWindow(QMainWindow):
         button_layout = QHBoxLayout()
         self.select_button = QPushButton("Select Files")
         self.move_button = QPushButton("Move Files")
+        self.move_button.setObjectName("primaryButton")  # Set ID for blue styling
         self.undo_button = QPushButton("Undo Last Action")
         
         for button in [self.select_button, self.move_button, self.undo_button]:
@@ -269,7 +307,7 @@ class MainWindow(QMainWindow):
 
         # File list with drag & drop support
         file_list_label = QLabel("Selected Files (Drag & Drop Files Here)")
-        file_list_label.setStyleSheet("font-weight: bold;")
+        file_list_label.setObjectName("sectionHeader")
         self.file_list = QListWidget()
         self.file_list.setMinimumHeight(200)
         self.file_list.setAcceptDrops(True)
@@ -283,6 +321,7 @@ class MainWindow(QMainWindow):
         self.organize_combo = QComboBox()
         self.organize_combo.addItems(['All Categories'] + list(self.flat_categories.keys()))
         organize_button = QPushButton("Organize Files")
+        organize_button.setObjectName("organize_button") # Set ID for styling
         organize_layout.addWidget(QLabel("Organize by:"))
         organize_layout.addWidget(self.organize_combo)
         organize_layout.addWidget(organize_button)
@@ -308,7 +347,7 @@ class MainWindow(QMainWindow):
         
         # History list
         history_label = QLabel("Recent Actions")
-        history_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        history_label.setObjectName("sectionHeader")
         self.history_list = QListWidget()
         
         # Undo buttons
@@ -336,18 +375,20 @@ class MainWindow(QMainWindow):
         
         # Command input
         command_label = QLabel("Enter Natural Language Command:")
-        command_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        command_label.setObjectName("sectionHeader")
         
         self.command_input = QLineEdit()
         self.command_input.setPlaceholderText("E.g., 'Move all PDFs older than 30 days to Archive folder'")
         self.command_input.setMinimumHeight(40)
         
         self.execute_command_button = QPushButton("Execute Command")
+        self.execute_command_button.setObjectName("primaryButton")
         self.execute_command_button.setMinimumHeight(40)
         
         # Example commands
         examples_label = QLabel("Example Commands:")
-        examples_label.setStyleSheet("font-weight: bold; margin-top: 20px;")
+        examples_label.setObjectName("sectionHeader")
+        # Add margin top using QSS if possible, or keep simple
         
         examples = [
             "Move all PDFs to Archive folder",
@@ -362,7 +403,7 @@ class MainWindow(QMainWindow):
         
         # Command output
         output_label = QLabel("Command Output:")
-        output_label.setStyleSheet("font-weight: bold; margin-top: 20px;")
+        output_label.setObjectName("sectionHeader")
         
         self.command_output = QListWidget()
         
