@@ -58,6 +58,7 @@ urllib3>=2.2.1
 wasabi>=1.1.2
 watchdog>=4.0.0
 weasel>=0.4.1
+tabulate>=0.9.0
 
 # Optional dependencies for enhanced features
 # textract  # For advanced text extraction from various file formats (optional)
