@@ -130,7 +130,7 @@ class FileOperations:
                 print(f"\n❌ Error: {str(e)}")
                 print("Please try again.")
 
-    def __init__(self, base_path=None, folder_name=None, safety_config=None):
+    def __init__(self, base_path=None, folder_name=None, safety_config=None, dry_run=False, skip_confirmations=False):
         """
         Initialize FileOperations with customizable base path and folder name
         
@@ -138,29 +138,50 @@ class FileOperations:
             base_path (str or Path, optional): Base directory path. If None, will prompt user
             folder_name (str, optional): Name of the organization folder. If None, will prompt user
             safety_config (dict, optional): Configuration for safety features
+            dry_run (bool): If True, only preview operations without executing them
+            skip_confirmations (bool): If True, skip all confirmation dialogs
         """
         
+        # Store dry-run mode state
+        self.dry_run = dry_run
+        
+        # Import dry-run manager only if needed
+        if self.dry_run:
+            from .dry_run import DryRunManager
+            self.dry_run_manager = DryRunManager()
+        else:
+            self.dry_run_manager = None
+        
         if base_path is None or folder_name is None:
-            base_path, folder_name = self.setup_organization(None)
+            # Skip GUI dialogs in dry-run mode
+            if not dry_run:
+                base_path, folder_name = self.setup_organization(None)
             
-            # If user cancelled the dialog, use default values
+            # If user cancelled the dialog or dry-run mode, use default values
             if base_path is None or folder_name is None:
                 base_path = str(Path.home() / "Documents")
                 folder_name = "Organized Files"
         
         self.base_dir = Path(base_path) / folder_name
         self.history = HistoryManager()
+        
+        # Pass skip_confirmations to SafetyManager
+        if safety_config is None:
+            safety_config = {}
+        safety_config['skip_confirmations'] = skip_confirmations
         self.safety = SafetyManager(config=safety_config)
         self.session_active = False
         
         
-        try:
-            self.base_dir.mkdir(parents=True, exist_ok=True)
-        except PermissionError:
-            raise PermissionError(
-                f"Unable to create folder at {self.base_dir}. Please ensure you have "
-                "appropriate permissions or choose a different location."
-            )
+        # Only create directory in non-dry-run mode
+        if not dry_run:
+            try:
+                self.base_dir.mkdir(parents=True, exist_ok=True)
+            except PermissionError:
+                raise PermissionError(
+                    f"Unable to create folder at {self.base_dir}. Please ensure you have "
+                    "appropriate permissions or choose a different location."
+                )
 
         
         self.categories = {
@@ -214,7 +235,7 @@ class FileOperations:
             category_path (str): Category path in format 'category/subcategory'
             
         Returns:
-            Path: Destination path where the file was copied
+            Path: Destination path where the file was copied (or would be copied in dry-run mode)
         """
         try:
             source_path = Path(source_path)
@@ -229,7 +250,6 @@ class FileOperations:
                 # If no subcategory is specified, use the category as the destination directory
                 dest_dir = self.base_dir / category_path
                 
-            dest_dir.mkdir(parents=True, exist_ok=True)
             dest_path = dest_dir / source_path.name
 
             # Handle filename conflicts
@@ -238,12 +258,20 @@ class FileOperations:
                 while dest_path.exists():
                     dest_path = dest_dir / f"{dest_path.stem}_{counter}{dest_path.suffix}"
                     counter += 1
-
+            
+            # DRY-RUN MODE: Only record the operation, don't execute
+            if self.dry_run:
+                self.dry_run_manager.add_operation('copy', source_path, dest_path, category_path)
+                return dest_path
+            
+            # NORMAL MODE: Execute the operation
+            dest_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(source_path), str(dest_path))
             self.history.log_operation(str(source_path), str(dest_path), operation_type="copy")
             return dest_path
         except Exception as e:
-            self.history.log_operation(str(source_path), "failed", operation_type="copy", metadata={'error': str(e)})
+            if not self.dry_run:
+                self.history.log_operation(str(source_path), "failed", operation_type="copy", metadata={'error': str(e)})
             raise
 
     def move_file(self, source_path, category_path, parent=None, skip_confirmation=False):
@@ -256,21 +284,13 @@ class FileOperations:
             skip_confirmation (bool): Skip safety confirmation if True
             
         Returns:
-            Path: Destination path where the file was moved
+            Path: Destination path where the file was moved (or would be moved in dry-run mode)
         """
         try:
             source_path = Path(source_path)
             if not source_path.exists():
                 raise FileNotFoundError(f"File not found: {source_path}")
             
-            # Safety confirmation (if enabled)
-            if not skip_confirmation:
-                if not self.safety.confirm_operation('move', source_path, parent):
-                    return None  # User cancelled
-            
-            # Optional backup before move (if enabled)
-            self.safety.create_backup(source_path)
-
             # Parse the category path
             if '/' in category_path:
                 category, subcategory = category_path.split('/')
@@ -279,7 +299,6 @@ class FileOperations:
                 # If no subcategory is specified, use the category as the destination directory
                 dest_dir = self.base_dir / category_path
                 
-            dest_dir.mkdir(parents=True, exist_ok=True)
             dest_path = dest_dir / source_path.name
 
             # Handle filename conflicts
@@ -288,12 +307,30 @@ class FileOperations:
                 while dest_path.exists():
                     dest_path = dest_dir / f"{dest_path.stem}_{counter}{dest_path.suffix}"
                     counter += 1
+            
+            # DRY-RUN MODE: Only record the operation, don't execute
+            if self.dry_run:
+                self.dry_run_manager.add_operation('move', source_path, dest_path, category_path)
+                return dest_path
+            
+            # NORMAL MODE: Execute the operation
+            # Safety confirmation (if enabled)
+            if not skip_confirmation:
+                if not self.safety.confirm_operation('move', source_path, parent):
+                    return None  # User cancelled
+            
+            # Optional backup before move (if enabled)
+            self.safety.create_backup(source_path)
+
+            # Create destination directory
+            dest_dir.mkdir(parents=True, exist_ok=True)
 
             shutil.move(str(source_path), str(dest_path))
             self.history.log_operation(str(source_path), str(dest_path), operation_type="move")
             return dest_path
         except Exception as e:
-            self.history.log_operation(str(source_path), "failed", operation_type="move", metadata={'error': str(e)})
+            if not self.dry_run:
+                self.history.log_operation(str(source_path), "failed", operation_type="move", metadata={'error': str(e)})
             raise
 
     def rename_file(self, file_path, new_name=None, options=None):
