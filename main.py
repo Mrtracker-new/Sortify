@@ -5,6 +5,7 @@ import sqlite3
 import sqlite3.dbapi2  # Explicitly import to ensure it's included in the build
 import time
 import traceback
+import argparse
 from pathlib import Path
 
 # Set up spaCy model path before importing any modules that use spaCy
@@ -349,7 +350,165 @@ def attempt_fix_database_permissions(db_path):
         logger.error(f"Failed to fix database permissions: {e}")
         return False
 
+def parse_arguments():
+    """Parse command-line arguments"""
+    parser = argparse.ArgumentParser(
+        description='Sortify - Intelligent File Organization System',
+        epilog='Examples:\n'
+               '  python main.py --dry-run --source "C:\\Downloads" --organize\n'
+               '  python main.py --yes --source "C:\\Downloads" --organize\n'
+               '  python main.py  (launches GUI)',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    parser.add_argument('--dry-run', action='store_true',
+                       help='Preview changes without moving files')
+    parser.add_argument('--yes', '-y', action='store_true',
+                       help='Skip confirmation prompts')
+    parser.add_argument('--source', type=str,
+                       help='Source directory to organize')
+    parser.add_argument('--organize', action='store_true',
+                       help='Organize files in the source directory')
+    parser.add_argument('--dest', type=str,
+                       help='Destination base path (default: ~/Documents)')
+    parser.add_argument('--folder', type=str, default='Organized Files',
+                       help='Organization folder name (default: Organized Files)')
+    
+    return parser.parse_args()
+
+def run_cli_mode(args):
+    """
+    Run Sortify in CLI mode (headless, no GUI)
+    
+    Args:
+        args: Parsed command-line arguments
+        
+    Returns:
+        int: Exit code (0 for success, 1 for error)
+    """
+    try:
+        from core.file_operations import FileOperations
+        
+        print("\n" + "="*60)
+        print("🗂️  Sortify - File Organization")
+        print("="*60)
+        
+        # Validate source directory
+        if not args.source:
+            print("\n❌ Error: --source argument is required for CLI mode")
+            print("   Example: python main.py --dry-run --source \"C:\\Downloads\" --organize")
+            return 1
+        
+        source_path = Path(args.source)
+        if not source_path.exists():
+            print(f"\n❌ Error: Source directory does not exist: {source_path}")
+            return 1
+        
+        if not source_path.is_dir():
+            print(f"\n❌ Error: Source path is not a directory: {source_path}")
+            return 1
+        
+        # Determine destination
+        dest_base = args.dest or str(Path.home() / "Documents")
+        
+        print(f"\n📂 Source: {source_path}")
+        print(f"📁 Destination: {dest_base}/{args.folder}")
+        
+        if args.dry_run:
+            print("🔍 Mode: DRY-RUN (preview only)")
+        elif args.yes:
+            print("⚡ Mode: AUTO (no confirmations)")
+        else:
+            print("👤 Mode: INTERACTIVE")
+        
+        print()
+        
+        # Initialize FileOperations
+        file_ops = FileOperations(
+            base_path=dest_base,
+            folder_name=args.folder, 
+            dry_run=args.dry_run,
+            skip_confirmations=args.yes
+        )
+        
+        # Create category folders (skipped in dry-run mode)
+        if not args.dry_run:
+            file_ops.create_category_folders()
+        
+        # Get all files from source directory
+        files = [f for f in source_path.iterdir() if f.is_file()]
+        
+        if not files:
+            print("ℹ️  No files found in source directory.")
+            return 0
+        
+        print(f"📊 Found {len(files)} files to process\n")
+        
+        # Start operation session
+        file_ops.start_operations()
+        
+        # Process each file
+        processed = 0
+        skipped = 0
+        errors = 0
+        
+        for file_path in files:
+            try:
+                # Categorize the file
+                category_path = file_ops.categorize_file(file_path)
+                
+                # Move the file (or record dry-run operation)
+                result = file_ops.move_file(file_path, category_path, skip_confirmation=args.yes)
+                
+                if result:
+                    processed += 1
+                    if not args.dry_run:
+                        print(f"  ✓ {file_path.name} → {category_path}")
+                else:
+                    skipped += 1
+                    
+            except Exception as e:
+                errors += 1
+                print(f"  ✗ {file_path.name}: {str(e)}")
+        
+        # Finalize operations
+        file_ops.finalize_operations()
+        
+        # Print results
+        print("\n" + "="*60)
+        
+        if args.dry_run:
+            # Show dry-run table
+            if hasattr(file_ops, 'dry_run_manager') and file_ops.dry_run_manager:
+                file_ops.dry_run_manager.print_operations_table()
+                file_ops.dry_run_manager.print_summary()
+        else:
+            # Show actual results
+            print("\n✨ Organization Complete!")
+            print(f"   Processed: {processed} files")
+            if skipped > 0:
+                print(f"   Skipped: {skipped} files")
+            if errors > 0:
+                print(f"   Errors: {errors} files")
+            print()
+        
+        return 0
+        
+    except Exception as e:
+        print(f"\n❌ Error: {str(e)}")
+        logger.error(f"CLI mode error: {e}", exc_info=True)
+        return 1
+
 def main():
+    # Parse command-line arguments
+    args = parse_arguments()
+    
+    # Check if we should run in CLI mode (headless, no GUI)
+    if args.dry_run or args.source:
+        # Run in CLI mode
+        return run_cli_mode(args)
+    
+    # Otherwise, run in GUI mode (original behavior)
     # Initialize application
     app = QApplication(sys.argv)
     
