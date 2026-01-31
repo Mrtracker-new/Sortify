@@ -1,9 +1,9 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                            QPushButton, QLineEdit, QLabel, QFileDialog, QListWidget,
                            QProgressBar, QMessageBox, QComboBox, QTabWidget, QMenu,
-                           QStatusBar, QToolBar)
+                           QStatusBar, QToolBar, QCheckBox, QDialog, QTextEdit, QDialogButtonBox)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QMimeData
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QAction
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QAction, QFont
 from core.file_operations import FileOperations
 from core.watcher import FolderWatcher
 from core.scheduler import SortScheduler
@@ -77,6 +77,109 @@ class ModelLoaderThread(QThread):
             logging.error(f"Error in model loader thread: {e}")
             # Emit None to signal failure/partial loading
             self.finished.emit(None, None, None)
+
+class PreviewDialog(QDialog):
+    """Dialog to preview file operations before executing them"""
+    
+    def __init__(self, dry_run_manager, parent=None):
+        super().__init__(parent)
+        self.dry_run_manager = dry_run_manager
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Set up the preview dialog UI"""
+        self.setWindowTitle("Preview File Operations")
+        self.setMinimumSize(700, 500)
+        
+        layout = QVBoxLayout(self)
+        
+        # Header label
+        operations = self.dry_run_manager.get_operations()
+        header_label = QLabel(f"📋 {len(operations)} file operations planned:")
+        header_label.setStyleSheet("font-size: 14pt; font-weight: bold; padding: 10px;")
+        layout.addWidget(header_label)
+        
+        # Text area for preview table
+        preview_text = QTextEdit()
+        preview_text.setReadOnly(True)
+        preview_text.setFont(QFont("Courier New", 9))
+        
+        # Format operations as text table
+        text_content = self._format_operations_table(operations)
+        preview_text.setText(text_content)
+        
+        layout.addWidget(preview_text)
+        
+        # Summary
+        summary_text = self._get_summary()
+        summary_label = QLabel(summary_text)
+        summary_label.setStyleSheet("padding: 10px; background-color: #f0f0f0; border-radius: 5px; color: #000000;")
+        layout.addWidget(summary_label)
+        
+        # Button box
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        
+        # Customize button text
+        button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Continue")
+        button_box.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancel")
+        
+        layout.addWidget(button_box)
+    
+    def _format_operations_table(self, operations):
+        """Format operations as a text table"""
+        lines = []
+        lines.append("=" * 80)
+        lines.append(f"{'Operation':<12} {'File':<30} {'→':<3} {'Destination'}")
+        lines.append("=" * 80)
+        
+        for op in operations:
+            operation_icon = {
+                'move': '📦 MOVE',
+                'copy': '📄 COPY',
+                'rename': '✏️ RENAME',
+                'delete': '🗑️ DELETE'
+            }.get(op['operation'], '📌 ' + op['operation'].upper())
+            
+            filename = op['filename'][:28] + '..' if len(op['filename']) > 30 else op['filename']
+            dest = op['destination']
+            
+            lines.append(f"{operation_icon:<12} {filename:<30} {'→':<3} {dest}")
+        
+        lines.append("=" * 80)
+        lines.append("")
+        lines.append(f"✨ Total: {len(operations)} files will be processed")
+        lines.append("💡 Click 'Continue' to execute these operations")
+        lines.append("   Click 'Cancel' to abort")
+        
+        return "\n".join(lines)
+    
+    def _get_summary(self):
+        """Get summary of operations"""
+        operations = self.dry_run_manager.get_operations()
+        
+        # Count by operation type
+        ops_by_type = {}
+        for op in operations:
+            op_type = op['operation']
+            ops_by_type[op_type] = ops_by_type.get(op_type, 0) + 1
+        
+        # Count by category
+        ops_by_category = {}
+        for op in operations:
+            if op['category']:
+                ops_by_category[op['category']] = ops_by_category.get(op['category'], 0) + 1
+        
+        summary_lines = []
+        summary_lines.append("📊 Summary:")
+        
+        for op_type, count in ops_by_type.items():
+            summary_lines.append(f"  • {op_type.capitalize()}: {count} files")
+        
+        return "\n".join(summary_lines)
 
 class MainWindow(QMainWindow):
     def __init__(self, history_manager):
@@ -192,6 +295,9 @@ class MainWindow(QMainWindow):
         
         # Enable drag and drop
         self.setAcceptDrops(True)
+        
+        # Preview mode state
+        self.preview_mode = False
         
         # Initialize advanced features
         self.init_advanced_features()
@@ -325,10 +431,16 @@ class MainWindow(QMainWindow):
         organize_layout = QHBoxLayout()
         self.organize_combo = QComboBox()
         self.organize_combo.addItems(['All Categories'] + list(self.flat_categories.keys()))
+        
+        # Add preview mode checkbox
+        self.preview_checkbox = QCheckBox("Preview Mode")
+        self.preview_checkbox.setToolTip("Preview file operations before executing them")
+        
         organize_button = QPushButton("Organize Files")
         organize_button.setObjectName("organize_button") # Set ID for styling
         organize_layout.addWidget(QLabel("Organize by:"))
         organize_layout.addWidget(self.organize_combo)
+        organize_layout.addWidget(self.preview_checkbox)
         organize_layout.addWidget(organize_button)
 
         # all widgets to main layout
@@ -656,15 +768,101 @@ class MainWindow(QMainWindow):
         if not self.selected_files:
             self.show_message("Warning", "Please select files first!", QMessageBox.Icon.Warning)
             return
+        
+        # Check if preview mode is enabled
+        preview_mode = self.preview_checkbox.isChecked()
+        
+        # Get the last destination directory from config if available
+        last_dir = ''
+        if hasattr(self, 'config_manager') and self.config_manager:
+            last_dir = self.config_manager.get_last_directory('destination')
+        
+        dest_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Select Destination Directory for Organized Files",
+            last_dir
+        )
+        
+        if not dest_dir:
+            return
+        
+        try:
+            # Save the selected directory to config
+            if hasattr(self, 'config_manager') and self.config_manager:
+                self.config_manager.set_last_directory('destination', dest_dir)
             
-        category = self.organize_combo.currentText()
-        if category == 'All Categories':
-            # Use all categories
-            self.move_files()
-        else:
-            # Use specific category
-            # Implementation would depend on file operations capabilities
-            self.status_bar.showMessage(f"Organizing files by {category}...")
+            # Create FileOperations in appropriate mode
+            if preview_mode:
+                # DRY-RUN MODE: Preview only
+                temp_file_ops = FileOperations(
+                    base_path=dest_dir,
+                    folder_name="Organized Files",
+                    dry_run=True
+                )
+                
+                # Start operations session for dry-run
+                temp_file_ops.start_operations()
+                
+                # Process files in dry-run mode
+                for file_path in self.selected_files:
+                    try:
+                        category_path = temp_file_ops.categorize_file(file_path)
+                        temp_file_ops.move_file(file_path, category_path)
+                    except Exception as e:
+                        logging.error(f"Error categorizing {file_path}: {e}")
+                
+                # End dry-run session
+                temp_file_ops.finalize_operations()
+                
+                # Show preview dialog
+                if temp_file_ops.dry_run_manager and temp_file_ops.dry_run_manager.has_operations():
+                    dialog = PreviewDialog(temp_file_ops.dry_run_manager, self)
+                    result = dialog.exec()
+                    
+                    if result == QDialog.DialogCode.Accepted:
+                        # User clicked Continue - execute operations
+                        self._execute_organization(dest_dir)
+                    # else: User cancelled, do nothing
+                else:
+                    self.show_message("Info", "No files to organize.", QMessageBox.Icon.Information)
+                    
+            else:
+                # NORMAL MODE: Execute immediately
+                self._execute_organization(dest_dir)
+                
+        except Exception as e:
+            self.show_message("Error", f"Error organizing files: {str(e)}", QMessageBox.Icon.Critical)
+            logging.error(f"Error in organize_files: {e}")
+    
+    def _execute_organization(self, dest_dir):
+        """Execute the actual file organization (extracted for reuse)"""
+        try:
+            # Initialize file operations if needed
+            if self.file_ops is None:
+                self.file_ops = FileOperations(dest_dir, "Organized Files")
+                
+                # Now that file_ops is initialized, we can start the scheduler
+                if hasattr(self, 'scheduler') and self.scheduler:
+                    self.scheduler.file_ops = self.file_ops
+                    if not self.scheduler.scheduler.running:
+                        self.scheduler.start()
+            
+            # Show progress
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(0)
+            
+            # Create a processing thread to handle file operations
+            self.processing_thread = ProcessingThread(self.selected_files, self.file_ops)
+            self.processing_thread.progress.connect(self.update_progress)
+            self.processing_thread.finished.connect(self.on_processing_finished)
+            self.processing_thread.error.connect(self.on_processing_error)
+            self.processing_thread.start()
+            
+            # Update status
+            self.status_bar.showMessage(f"Organizing {len(self.selected_files)} files...")
+            
+        except Exception as e:
+            self.on_processing_error(str(e))
 
     def show_message(self, title, message, icon=QMessageBox.Icon.Information):
         """Show a message box"""
