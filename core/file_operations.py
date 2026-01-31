@@ -4,6 +4,7 @@ from pathlib import Path
 from datetime import datetime
 from PyQt6.QtWidgets import QMessageBox, QInputDialog, QFileDialog
 from .history import HistoryManager
+from .safety_manager import SafetyManager
 
 class FileOperations:
     def setup_organization(self, parent=None):
@@ -129,13 +130,14 @@ class FileOperations:
                 print(f"\n❌ Error: {str(e)}")
                 print("Please try again.")
 
-    def __init__(self, base_path=None, folder_name=None):
+    def __init__(self, base_path=None, folder_name=None, safety_config=None):
         """
         Initialize FileOperations with customizable base path and folder name
         
         Args:
             base_path (str or Path, optional): Base directory path. If None, will prompt user
             folder_name (str, optional): Name of the organization folder. If None, will prompt user
+            safety_config (dict, optional): Configuration for safety features
         """
         
         if base_path is None or folder_name is None:
@@ -147,7 +149,9 @@ class FileOperations:
                 folder_name = "Organized Files"
         
         self.base_dir = Path(base_path) / folder_name
-        self.history = HistoryManager()  
+        self.history = HistoryManager()
+        self.safety = SafetyManager(config=safety_config)
+        self.session_active = False
         
         
         try:
@@ -187,6 +191,20 @@ class FileOperations:
         except Exception as e:
             print(f"Error creating category folders: {e}")
             return False
+    
+    def start_operations(self):
+        """Start a new batch of file operations with session tracking"""
+        if not self.session_active:
+            self.history.start_session()
+            self.session_active = True
+    
+    def finalize_operations(self):
+        """Finalize the current batch of operations and end session"""
+        if self.session_active:
+            self.history.end_session()
+            self.session_active = False
+            # Clean up old backups if enabled
+            self.safety.cleanup_old_backups()
 
     def copy_file(self, source_path, category_path):
         """Copy file to appropriate category folder
@@ -228,12 +246,14 @@ class FileOperations:
             self.history.log_operation(str(source_path), "failed", operation_type="copy", metadata={'error': str(e)})
             raise
 
-    def move_file(self, source_path, category_path):
-        """Move file to appropriate category folder
+    def move_file(self, source_path, category_path, parent=None, skip_confirmation=False):
+        """Move file to appropriate category folder with optional safety confirmation
         
         Args:
             source_path (str or Path): Path to the source file
             category_path (str): Category path in format 'category/subcategory'
+            parent (QWidget, optional): Parent widget for confirmation dialog
+            skip_confirmation (bool): Skip safety confirmation if True
             
         Returns:
             Path: Destination path where the file was moved
@@ -242,6 +262,14 @@ class FileOperations:
             source_path = Path(source_path)
             if not source_path.exists():
                 raise FileNotFoundError(f"File not found: {source_path}")
+            
+            # Safety confirmation (if enabled)
+            if not skip_confirmation:
+                if not self.safety.confirm_operation('move', source_path, parent):
+                    return None  # User cancelled
+            
+            # Optional backup before move (if enabled)
+            self.safety.create_backup(source_path)
 
             # Parse the category path
             if '/' in category_path:
