@@ -32,7 +32,8 @@ class SafetyManager:
             'backup_retention_days': 7,
             'confirm_move': True,
             'confirm_delete': True,
-            'confirm_batch': True
+            'confirm_batch': True,
+            'skip_confirmations': False  # For --yes flag support
         }
         
         # Update with user config
@@ -53,6 +54,10 @@ class SafetyManager:
         Returns:
             bool: True if user confirmed, False otherwise
         """
+        # Skip confirmation if skip_confirmations flag is set (--yes flag)
+        if self.config.get('skip_confirmations', False):
+            return True
+        
         # Skip confirmation if disabled in config
         if not self.config.get('enable_confirmations', False):
             return True
