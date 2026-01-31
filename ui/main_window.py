@@ -279,6 +279,11 @@ class MainWindow(QMainWindow):
         undo_action = QAction("Undo Last Action", self)
         undo_action.triggered.connect(self.undo_last_action)
         toolbar.addAction(undo_action)
+        
+        # Undo last session action
+        undo_session_action = QAction("Undo Last Session", self)
+        undo_session_action.triggered.connect(self.undo_last_session)
+        toolbar.addAction(undo_session_action)
 
     def setup_main_tab(self):
         """Set up the main organization tab"""
@@ -345,6 +350,13 @@ class MainWindow(QMainWindow):
         """Set up the history tab"""
         layout = QVBoxLayout(self.history_tab)
         
+        # Tab widget for History and Sessions
+        tabs = QTabWidget()
+        
+        # --- History Tab ---
+        history_widget = QWidget()
+        history_layout = QVBoxLayout(history_widget)
+        
         # History list
         history_label = QLabel("Recent Actions")
         history_label.setObjectName("sectionHeader")
@@ -358,16 +370,47 @@ class MainWindow(QMainWindow):
         undo_layout.addWidget(self.undo_selected_button)
         undo_layout.addWidget(self.clear_history_button)
         
-        layout.addWidget(history_label)
-        layout.addWidget(self.history_list)
-        layout.addLayout(undo_layout)
+        history_layout.addWidget(history_label)
+        history_layout.addWidget(self.history_list)
+        history_layout.addLayout(undo_layout)
+        
+        # --- Sessions Tab ---
+        sessions_widget = QWidget()
+        sessions_layout = QVBoxLayout(sessions_widget)
+        
+        sessions_label = QLabel("Operation Sessions")
+        sessions_label.setObjectName("sectionHeader")
+        self.sessions_list = QListWidget()
+        
+        # Session buttons
+        session_button_layout = QHBoxLayout()
+        self.view_session_button = QPushButton("View Session Details")
+        self.undo_session_button = QPushButton("Undo Selected Session")
+        self.refresh_sessions_button = QPushButton("Refresh")
+        
+        session_button_layout.addWidget(self.view_session_button)
+        session_button_layout.addWidget(self.undo_session_button)
+        session_button_layout.addWidget(self.refresh_sessions_button)
+        
+        sessions_layout.addWidget(sessions_label)
+        sessions_layout.addWidget(self.sessions_list)
+        sessions_layout.addLayout(session_button_layout)
+        
+        # Add tabs
+        tabs.addTab(history_widget, "History")
+        tabs.addTab(sessions_widget, "Sessions")
+        layout.addWidget(tabs)
         
         # Connect signals
         self.undo_selected_button.clicked.connect(self.undo_selected_action)
         self.clear_history_button.clicked.connect(self.clear_history)
+        self.view_session_button.clicked.connect(self.view_session_details)
+        self.undo_session_button.clicked.connect(self.undo_selected_session)
+        self.refresh_sessions_button.clicked.connect(self.refresh_sessions)
         
-        # Populate history
+        # Populate history and sessions
         self.refresh_history()
+        self.refresh_sessions()
 
     def setup_command_tab(self):
         """Set up the natural language command tab"""
@@ -809,3 +852,127 @@ class MainWindow(QMainWindow):
             'Office': ['Templates', 'Outlook', 'Database'],
             'Misc': ['Other']
         }
+    
+    def undo_last_session(self):
+        """Undo the last complete operation session"""
+        sessions = self.history_manager.get_sessions(limit=1)
+        
+        if not sessions:
+            self.show_message("Info", "No sessions found to undo", QMessageBox.Icon.Information)
+            return
+        
+        last_session = sessions[0]
+        session_id = last_session['session_id']
+        op_count = last_session['operation_count']
+        
+        # Confirm with user
+        confirm = QMessageBox.question(
+            self,
+            "Confirm Undo Session",
+            f"Are you sure you want to undo the last session?\n\n"
+            f"Session: {session_id}\n"
+            f"Operations: {op_count}\n\n"
+            f"This will reverse all operations from this session.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if confirm == QMessageBox.StandardButton.Yes:
+            success, message = self.history_manager.undo_session(session_id)
+            if success:
+                self.refresh_history()
+                self.refresh_sessions()
+                self.status_bar.showMessage(f"Session {session_id} undone")
+                self.show_message("Success", message)
+            else:
+                self.status_bar.showMessage("Failed to undo session")
+                self.show_message("Warning", message, QMessageBox.Icon.Warning)
+    
+    def refresh_sessions(self):
+        """Refresh the sessions list"""
+        self.sessions_list.clear()
+        sessions = self.history_manager.get_sessions()
+        
+        if not sessions:
+            self.sessions_list.addItem("No sessions found. Sessions track groups of file operations.")
+        else:
+            for session in sessions:
+                session_id = session['session_id']
+                op_count = session['operation_count']
+                start_time = session['start_time']
+                successful = session.get('successful_ops', 0)
+                undone = session.get('undone_ops', 0)
+                
+                # Format display
+                display_text = f"{session_id} | {op_count} ops ({successful} success, {undone} undone) | {start_time}"
+                self.sessions_list.addItem(display_text)
+    
+    def view_session_details(self):
+        """View detailed information about selected session"""
+        selected_items = self.sessions_list.selectedItems()
+        if not selected_items:
+            self.show_message("Warning", "Please select a session to view", QMessageBox.Icon.Warning)
+            return
+        
+        # Extract session_id from the display text
+        display_text = selected_items[0].text()
+        session_id = display_text.split('|')[0].strip()
+        
+        # Get session operations
+        operations = self.history_manager.get_session_operations(session_id)
+        
+        if not operations:
+            self.show_message("Info", "No operations found in this session", QMessageBox.Icon.Information)
+            return
+        
+        # Create detailed view dialog
+        detail_window = QMessageBox(self)
+        detail_window.setWindowTitle(f"Session Details: {session_id}")
+        detail_window.setIcon(QMessageBox.Icon.Information)
+        
+        # Build detail text
+        detail_text = f"Session ID: {session_id}\n"
+        detail_text += f"Total Operations: {len(operations)}\n\n"
+        detail_text += "Operations:\n"
+        detail_text += "-" * 50 + "\n"
+        
+        for i, op in enumerate(operations, 1):
+            detail_text += f"{i}. {op['file_name']}\n"
+            detail_text += f"   {op['original_path']} → {op['new_path']}\n"
+            detail_text += f"   Status: {op['status']} | {op['timestamp']}\n\n"
+        
+        detail_window.setText(detail_text)
+        detail_window.exec()
+    
+    def undo_selected_session(self):
+        """Undo the selected session"""
+        selected_items = self.sessions_list.selectedItems()
+        if not selected_items:
+            self.show_message("Warning", "Please select a session to undo", QMessageBox.Icon.Warning)
+            return
+        
+        # Extract session_id from the display text
+        display_text = selected_items[0].text()
+        session_id = display_text.split('|')[0].strip()
+        op_count_text = display_text.split('|')[1].split('ops')[0].strip()
+        
+        # Confirm with user
+        confirm = QMessageBox.question(
+            self,
+            "Confirm Undo Session",
+            f"Are you sure you want to undo this session?\n\n"
+            f"Session: {session_id}\n"
+            f"Operations: {op_count_text}\n\n"
+            f"This will reverse all operations from this session.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if confirm == QMessageBox.StandardButton.Yes:
+            success, message = self.history_manager.undo_session(session_id)
+            if success:
+                self.refresh_history()
+                self.refresh_sessions()
+                self.status_bar.showMessage(f"Session {session_id} undone")
+                self.show_message("Success", message)
+            else:
+                self.status_bar.showMessage("Failed to undo session")
+                self.show_message("Warning", message, QMessageBox.Icon.Warning)
