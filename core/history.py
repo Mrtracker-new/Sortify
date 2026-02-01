@@ -103,12 +103,11 @@ class HistoryManager:
                 logger.warning("Database file permission issues detected, attempting to fix")
                 self._fix_database_permissions()
             
-            # Initialize database connection with retry logic
-            self.conn = None
-            self.cursor = None
-            self._connect_with_retry()
+            # Initialize thread-safe database manager
+            from .database_manager import DatabaseManager
+            self.db_manager = DatabaseManager(self.db_path, timeout=10.0)
             
-            # Create a lock for thread safety
+            # Create a lock for thread safety (for session management, not database)
             self.lock = threading.Lock()
             
             # Session management
@@ -122,49 +121,6 @@ class HistoryManager:
         except Exception as e:
             logger.error(f"Failed to initialize history manager: {e}")
             raise
-    
-    def _connect_with_retry(self, max_retries=3, retry_delay=1.0):
-        """Connect to the database with retry logic"""
-        last_error = None
-        
-        for attempt in range(max_retries):
-            try:
-                # Connect to the database with a timeout to prevent hanging
-                self.conn = sqlite3.connect(str(self.db_path), timeout=10.0, check_same_thread=False)
-                self.cursor = self.conn.cursor()
-                
-                # Enable foreign keys
-                self.cursor.execute("PRAGMA foreign_keys = ON")
-                
-                # Check database integrity
-                self.cursor.execute("PRAGMA integrity_check")
-                result = self.cursor.fetchone()[0]
-                if result != "ok":
-                    logger.warning(f"Database integrity check failed: {result}")
-                    raise sqlite3.DatabaseError(f"Database integrity check failed: {result}")
-                
-                logger.info(f"Connected to database successfully on attempt {attempt+1}")
-                return
-            except sqlite3.Error as e:
-                last_error = e
-                logger.warning(f"Database connection attempt {attempt+1} failed: {e}")
-                
-                # Close any existing connection before retrying
-                if self.conn:
-                    try:
-                        self.conn.close()
-                    except Exception:
-                        pass
-                
-                if attempt < max_retries - 1:
-                    logger.info(f"Retrying in {retry_delay} seconds...")
-                    # Try to fix permissions before retrying
-                    self._fix_database_permissions()
-                    time.sleep(retry_delay)
-        
-        # All retries failed
-        logger.error(f"Failed to connect to database after {max_retries} attempts: {last_error}")
-        raise last_error
     
     def _fix_database_permissions(self):
         """Attempt to fix database file permissions"""
@@ -236,23 +192,22 @@ class HistoryManager:
     def _migrate_database(self):
         """Migrate database to add session support if needed"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                
-                # Check if session_id column exists
-                cursor.execute("PRAGMA table_info(history)")
-                columns = [col[1] for col in cursor.fetchall()]
-                
-                if 'session_id' not in columns:
-                    logger.info("Adding session_id column to history table")
-                    cursor.execute("""
-                        ALTER TABLE history 
-                        ADD COLUMN session_id TEXT
-                    """)
-                    self.conn.commit()
-                    logger.info("Database migration completed successfully")
-                else:
-                    logger.info("Database already has session support")
+            # Check if session_id column exists
+            columns_result = self.db_manager.execute_query(
+                "PRAGMA table_info(history)",
+                fetch_mode='all'
+            )
+            columns = [col[1] for col in columns_result] if columns_result else []
+            
+            if 'session_id' not in columns:
+                logger.info("Adding session_id column to history table")
+                self.db_manager.execute_query(
+                    "ALTER TABLE history ADD COLUMN session_id TEXT",
+                    fetch_mode='none'
+                )
+                logger.info("Database migration completed successfully")
+            else:
+                logger.info("Database already has session support")
         except sqlite3.Error as e:
             logger.error(f"Database migration failed: {e}")
             # Don't raise - old operations can still work without sessions
@@ -310,25 +265,27 @@ class HistoryManager:
     def get_sessions(self, limit=50):
         """Get list of all sessions with metadata"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute("""
-                    SELECT 
-                        session_id,
-                        COUNT(*) as operation_count,
-                        MIN(timestamp) as start_time,
-                        MAX(timestamp) as end_time,
-                        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful_ops,
-                        SUM(CASE WHEN status = 'undone' THEN 1 ELSE 0 END) as undone_ops
-                    FROM history 
-                    WHERE session_id IS NOT NULL
-                    GROUP BY session_id 
-                    ORDER BY start_time DESC 
-                    LIMIT ?
-                """, (limit,))
-                
-                columns = ['session_id', 'operation_count', 'start_time', 'end_time', 'successful_ops', 'undone_ops']
-                return [dict(zip(columns, row)) for row in cursor.fetchall()]
+            results = self.db_manager.execute_query(
+                """
+                SELECT 
+                    session_id,
+                    COUNT(*) as operation_count,
+                    MIN(timestamp) as start_time,
+                    MAX(timestamp) as end_time,
+                    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful_ops,
+                    SUM(CASE WHEN status = 'undone' THEN 1 ELSE 0 END) as undone_ops
+                FROM history 
+                WHERE session_id IS NOT NULL
+                GROUP BY session_id 
+                ORDER BY start_time DESC 
+                LIMIT ?
+                """,
+                params=(limit,),
+                fetch_mode='all'
+            )
+            
+            columns = ['session_id', 'operation_count', 'start_time', 'end_time', 'successful_ops', 'undone_ops']
+            return [dict(zip(columns, row)) for row in results] if results else []
         except sqlite3.Error as e:
             logger.error(f"Error getting sessions: {e}")
             return []
@@ -336,20 +293,22 @@ class HistoryManager:
     def get_session_operations(self, session_id):
         """Get all operations for a specific session"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute("""
-                    SELECT 
-                        id, file_name, original_path, new_path, 
-                        file_size, operation_type, timestamp, status
-                    FROM history 
-                    WHERE session_id = ?
-                    ORDER BY timestamp ASC
-                """, (session_id,))
-                
-                columns = ['id', 'file_name', 'original_path', 'new_path', 
-                          'file_size', 'operation_type', 'timestamp', 'status']
-                return [dict(zip(columns, row)) for row in cursor.fetchall()]
+            results = self.db_manager.execute_query(
+                """
+                SELECT 
+                    id, file_name, original_path, new_path, 
+                    file_size, operation_type, timestamp, status
+                FROM history 
+                WHERE session_id = ?
+                ORDER BY timestamp ASC
+                """,
+                params=(session_id,),
+                fetch_mode='all'
+            )
+            
+            columns = ['id', 'file_name', 'original_path', 'new_path', 
+                      'file_size', 'operation_type', 'timestamp', 'status']
+            return [dict(zip(columns, row)) for row in results] if results else []
         except sqlite3.Error as e:
             logger.error(f"Error getting session operations: {e}")
             return []
@@ -396,38 +355,32 @@ class HistoryManager:
         """Add an entry to the history table"""
         try:
             with self.lock:
-                self.cursor.execute("""
-                INSERT INTO history (file_name, original_path, new_path, file_size, operation_type, status, session_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (file_name, original_path, new_path, file_size, operation_type, status, self.current_session_id))
-                self.conn.commit()
-                return self.cursor.lastrowid
+                session_id = self.current_session_id
+            
+            # Use transaction for insert and return
+            def insert_callback(cursor):
+                cursor.execute(
+                    "INSERT INTO history (file_name, original_path, new_path, file_size, operation_type, status, session_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (file_name, original_path, new_path, file_size, operation_type, status, session_id)
+                )
+                return cursor.lastrowid
+            
+            result = self.db_manager.execute_with_retry(insert_callback)
+            return result
         except sqlite3.Error as e:
             logger.error(f"Database error in add_history_entry: {e}")
-            # Try to reconnect and retry once
-            try:
-                self._connect_with_retry()
-                with self.lock:
-                    self.cursor.execute("""
-                    INSERT INTO history (file_name, original_path, new_path, file_size, operation_type, status, session_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (file_name, original_path, new_path, file_size, operation_type, status, self.current_session_id))
-                    self.conn.commit()
-                    return self.cursor.lastrowid
-            except sqlite3.Error as retry_error:
-                logger.error(f"Database retry error in add_history_entry: {retry_error}")
-                return None
+            return None
 
     def get_operations(self, limit=100, offset=0):
         """Get recent operations from the database"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute(
-                    "SELECT id, source, target, timestamp FROM operations ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                    (limit, offset)
-                )
-                return cursor.fetchall()
+            results = self.db_manager.execute_query(
+                "SELECT id, source, target, timestamp FROM operations ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                params=(limit, offset),
+                fetch_mode='all'
+            )
+            return results if results else []
         except sqlite3.Error as e:
             logging.error(f"Error getting operations: {str(e)}")
             return []
@@ -435,13 +388,12 @@ class HistoryManager:
     def get_history_entries(self, limit=100, offset=0):
         """Get recent history entries from the database"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute(
-                    "SELECT id, file_name, original_path, new_path, file_size, operation_type, timestamp, status FROM history ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                    (limit, offset)
-                )
-                return cursor.fetchall()
+            results = self.db_manager.execute_query(
+                "SELECT id, file_name, original_path, new_path, file_size, operation_type, timestamp, status FROM history ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                params=(limit, offset),
+                fetch_mode='all'
+            )
+            return results if results else []
         except sqlite3.Error as e:
             logging.error(f"Error getting history entries: {str(e)}")
             return []
@@ -563,10 +515,8 @@ class HistoryManager:
     def clear_operations(self):
         """Clear all operations from the database"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute("DELETE FROM operations")
-                return True
+            self.db_manager.execute_query("DELETE FROM operations", fetch_mode='none')
+            return True
         except sqlite3.Error as e:
             logging.error(f"Error clearing operations: {str(e)}")
             return False
@@ -574,18 +524,19 @@ class HistoryManager:
     def clear_history(self):
         """Clear all history entries from the database"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute("DELETE FROM history")
-                return True
+            self.db_manager.execute_query("DELETE FROM history", fetch_mode='none')
+            return True
         except Exception as e:
             logging.error(f"Error clearing history: {str(e)}")
             return False
 
     def __del__(self):
-        """Ensure database connection is closed"""
-        if hasattr(self, 'conn'):
-            self.conn.close()
+        """Ensure database connections are closed"""
+        if hasattr(self, 'db_manager'):
+            try:
+                self.db_manager.close_all_connections()
+            except Exception as e:
+                logger.error(f"Error closing database connections: {e}")
 
     def log_operation(self, original_path, new_path, operation_type="move", metadata=None):
         """Log a file operation with metadata"""
@@ -594,22 +545,18 @@ class HistoryManager:
             file_name = Path(original_path).name
             file_size = Path(original_path).stat().st_size if Path(original_path).exists() else 0
 
-            # Use thread lock for thread safety
+            # Get session_id under lock
             with self.lock:
-                cursor = self.conn.cursor()
-                
-                try:
-                    # Use a direct insert without explicit transaction management
-                    # since we're using autocommit mode (isolation_level=None)
-                    cursor.execute("""
-                        INSERT INTO history 
-                        (file_name, original_path, new_path, file_size, operation_type, session_id) 
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (file_name, original_path, new_path, file_size, operation_type, self.current_session_id))
-                    return True
-                except sqlite3.Error as e:
-                    logging.error(f"Database error during log_operation: {str(e)}")
-                    return False
+                session_id = self.current_session_id
+            
+            # Execute insert query
+            success = self.db_manager.execute_transaction([
+                (
+                    "INSERT INTO history (file_name, original_path, new_path, file_size, operation_type, session_id) VALUES (?, ?, ?, ?, ?, ?)",
+                    (file_name, original_path, new_path, file_size, operation_type, session_id)
+                )
+            ])
+            return success
         except Exception as e:
             logging.error(f"Error logging operation: {e}")
             return False
@@ -617,135 +564,129 @@ class HistoryManager:
     def undo_last_operation(self):
         """Undo the last file operation"""
         try:
-            # Use thread lock for thread safety
-            with self.lock:
-                operations = self.get_operations_with_id(limit=1)
-                if not operations:
-                    return False, "No operations to undo"
-                    
-                operation = operations[0]
-                source = operation['source']
-                target = operation['target']
-                op_id = operation['id']
+            operations = self.get_operations_with_id(limit=1)
+            if not operations:
+                return False, "No operations to undo"
                 
-                # Check if the file exists at the target location
-                if not os.path.exists(target):
-                    return False, f"File no longer exists at {target}"
-                    
-                # Try to move the file back to its original location
-                try:
-                    # Ensure the directory exists
-                    os.makedirs(os.path.dirname(source), exist_ok=True)
-                    
-                    # Move the file back
-                    shutil.move(target, source)
-                    
-                    # Update the operation status
-                    cursor = self.conn.cursor()
-                    cursor.execute("""
-                        UPDATE history 
-                        SET status = 'undone' 
-                        WHERE id = ?
-                    """, (op_id,))
-                    self.conn.commit()  # IMPORTANT: Commit the change
-                    
+            operation = operations[0]
+            source = operation['source']
+            target = operation['target']
+            op_id = operation['id']
+            
+            # Check if the file exists at the target location
+            if not os.path.exists(target):
+                return False, f"File no longer exists at {target}"
+                
+            # Try to move the file back to its original location
+            try:
+                # Ensure the directory exists
+                os.makedirs(os.path.dirname(source), exist_ok=True)
+                
+                # Move the file back
+                shutil.move(target, source)
+                
+                # Update the operation status
+                success = self.db_manager.execute_transaction([
+                    ("UPDATE history SET status = 'undone' WHERE id = ?", (op_id,))
+                ])
+                
+                if success:
                     return True, f"Successfully moved {os.path.basename(target)} back to {source}"
-                except Exception as e:
-                    return False, f"Error during undo: {e}"
+                else:
+                    return False, "Failed to update database"
+            except Exception as e:
+                return False, f"Error during undo: {e}"
         except Exception as e:
             return False, f"Error retrieving operation: {e}"
             
     def undo_operation_by_id(self, op_id):
         """Undo a specific file operation by ID"""
         try:
-            # Use thread lock for thread safety
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute("""
-                    SELECT original_path, new_path 
-                    FROM history 
-                    WHERE id = ? AND status = 'success'
-                """, (op_id,))
-                result = cursor.fetchone()
-                
-                if result:
-                    original_path, new_path = result
-                    if os.path.exists(new_path):
-                        try:
-                            # Ensure original directory exists
-                            original_dir = os.path.dirname(original_path)
-                            os.makedirs(original_dir, exist_ok=True)
-                            
-                            # Move file back
-                            os.rename(new_path, original_path)
-                            
-                            # Update database status
-                            cursor.execute("""
-                                UPDATE history 
-                                SET status = 'undone' 
-                                WHERE id = ?
-                            """, (op_id,))
-                            self.conn.commit()  # IMPORTANT: Commit the change
-                            
+            result = self.db_manager.execute_query(
+                "SELECT original_path, new_path FROM history WHERE id = ? AND status = 'success'",
+                params=(op_id,),
+                fetch_mode='one'
+            )
+            
+            if result:
+                original_path, new_path = result
+                if os.path.exists(new_path):
+                    try:
+                        # Ensure original directory exists
+                        original_dir = os.path.dirname(original_path)
+                        os.makedirs(original_dir, exist_ok=True)
+                        
+                        # Move file back
+                        os.rename(new_path, original_path)
+                        
+                        # Update database status
+                        success = self.db_manager.execute_transaction([
+                            ("UPDATE history SET status = 'undone' WHERE id = ?", (op_id,))
+                        ])
+                        
+                        if success:
                             return True, f"Successfully moved {os.path.basename(new_path)} back to {original_path}"
-                        except Exception as e:
-                            return False, f"Error during undo: {e}"
-                    return False, "File no longer exists at new location"
-                return False, "Operation not found or already undone"
+                        else:
+                            return False, "Failed to update database"
+                    except Exception as e:
+                        return False, f"Error during undo: {e}"
+                return False, "File no longer exists at new location"
+            return False, "Operation not found or already undone"
         except Exception as e:
             return False, f"Error during undo: {e}"
             
     def get_operations_with_id(self, limit=10):
         """Get recent operations with their IDs, default last 10"""
-        with self.lock:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                'SELECT id, file_name, original_path, new_path, timestamp FROM history WHERE status = "success" ORDER BY timestamp DESC LIMIT ?',
-                (limit,)
-            )
-            return [{'id': row[0], 'file_name': row[1], 'source': row[2], 'target': row[3], 'timestamp': row[4]} for row in cursor.fetchall()]
+        results = self.db_manager.execute_query(
+            'SELECT id, file_name, original_path, new_path, timestamp FROM history WHERE status = "success" ORDER BY timestamp DESC LIMIT ?',
+            params=(limit,),
+            fetch_mode='all'
+        )
+        return [{'id': row[0], 'file_name': row[1], 'source': row[2], 'target': row[3], 'timestamp': row[4]} for row in results] if results else []
 
     def get_history(self, limit=10):
         """Get recent history entries, default last 10"""
-        with self.lock:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                'SELECT id, file_name, original_path, new_path, timestamp, status FROM history ORDER BY timestamp DESC LIMIT ?',
-                (limit,)
-            )
-            return [{
-                'id': row[0], 
-                'file_name': row[1], 
-                'source': row[2], 
-                'target': row[3], 
-                'timestamp': row[4],
-                'status': row[5]
-            } for row in cursor.fetchall()]
+        results = self.db_manager.execute_query(
+            'SELECT id, file_name, original_path, new_path, timestamp, status FROM history ORDER BY timestamp DESC LIMIT ?',
+            params=(limit,),
+            fetch_mode='all'
+        )
+        return [{
+            'id': row[0], 
+            'file_name': row[1], 
+            'source': row[2], 
+            'target': row[3], 
+            'timestamp': row[4],
+            'status': row[5]
+        } for row in results] if results else []
 
     def search_history(self, filename):
         """Search history for a specific filename"""
-        with self.lock:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT file_name, original_path, new_path, timestamp, status
-                FROM history 
-                WHERE file_name LIKE ? 
-                ORDER BY timestamp DESC
-            """, (f'%{filename}%',))
-            return cursor.fetchall()
+        results = self.db_manager.execute_query(
+            """
+            SELECT file_name, original_path, new_path, timestamp, status
+            FROM history 
+            WHERE file_name LIKE ? 
+            ORDER BY timestamp DESC
+            """,
+            params=(f'%{filename}%',),
+            fetch_mode='all'
+        )
+        return results if results else []
 
     def clear_history(self, days_old=30):
         """Clear old history entries"""
         try:
-            # Use thread lock for thread safety
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute("""
-                    DELETE FROM history 
-                    WHERE datetime(timestamp) < datetime('now', ?)
-                """, (f"-{days_old} days",))
-                logging.info(f"Cleared history entries older than {days_old} days")
-                return True
+            self.db_manager.execute_query(
+                """
+                DELETE FROM history 
+                WHERE datetime(timestamp) < datetime('now', ?)
+                """,
+                params=(f"-{days_old} days",),
+                fetch_mode='none'
+            )
+            logging.info(f"Cleared history entries older than {days_old} days")
+            return True
         except sqlite3.Error as e:
             logging.error(f"Database error during clear_history: {str(e)}")
             return False
