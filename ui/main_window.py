@@ -720,13 +720,16 @@ class MainWindow(QMainWindow):
         
         if confirm == QMessageBox.StandardButton.Yes:
             try:
-                cursor = self.history_manager.conn.cursor()
-                cursor.execute("DELETE FROM history")
-                cursor.execute("DELETE FROM operations")
-                self.history_manager.conn.commit()
-                self.history_list.clear()
-                self.status_bar.showMessage("History cleared")
-                self.show_message("Success", "History has been cleared successfully")
+                # Use HistoryManager methods to clear data
+                success1 = self.history_manager.clear_operations()
+                success2 = self.history_manager.clear_history()
+                
+                if success1 and success2:
+                    self.history_list.clear()
+                    self.status_bar.showMessage("History cleared")
+                    self.show_message("Success", "History has been cleared successfully")
+                else:
+                    raise Exception("Failed to clear history tables")
             except Exception as e:
                 self.status_bar.showMessage("Error clearing history")
                 self.show_message("Error", f"Could not clear history: {str(e)}")
