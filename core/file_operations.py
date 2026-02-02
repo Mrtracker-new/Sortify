@@ -135,11 +135,14 @@ class FileOperations:
         Initialize FileOperations with customizable base path and folder name
         
         Args:
-            base_path (str or Path, optional): Base directory path. If None, will prompt user
-            folder_name (str, optional): Name of the organization folder. If None, will prompt user
+            base_path (str or Path, optional): Base directory path. Required for non-dry-run mode.
+            folder_name (str, optional): Name of the organization folder. Required for non-dry-run mode.
             safety_config (dict, optional): Configuration for safety features
             dry_run (bool): If True, only preview operations without executing them
             skip_confirmations (bool): If True, skip all confirmation dialogs
+            
+        Raises:
+            ValueError: If base_path or folder_name are None in non-dry-run mode
         """
         
         # Store dry-run mode state
@@ -152,15 +155,18 @@ class FileOperations:
         else:
             self.dry_run_manager = None
         
+        # Handle None values based on mode
         if base_path is None or folder_name is None:
-            # Skip GUI dialogs in dry-run mode
-            if not dry_run:
-                base_path, folder_name = self.setup_organization(None)
-            
-            # If user cancelled the dialog or dry-run mode, use default values
-            if base_path is None or folder_name is None:
+            if dry_run:
+                # Dry-run mode: Use safe defaults
                 base_path = str(Path.home() / "Documents")
                 folder_name = "Organized Files"
+            else:
+                # Non-dry-run mode: FAIL FAST
+                raise ValueError(
+                    "base_path and folder_name are required for non-dry-run mode. "
+                    "Please provide valid paths or use setup_organization() to configure."
+                )
         
         self.base_dir = Path(base_path) / folder_name
         self.history = HistoryManager()
