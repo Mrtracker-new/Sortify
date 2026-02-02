@@ -322,6 +322,34 @@ class MainWindow(QMainWindow):
         else:
             self.status_bar.showMessage("Ready (Basic Mode)")
             logging.warning("Advanced features failed to load.")
+    
+    def _ensure_file_ops(self, base_path, folder_name):
+        """
+        Ensure FileOperations is initialized with valid parameters.
+        
+        Args:
+            base_path: Base directory path
+            folder_name: Organization folder name
+            
+        Returns:
+            bool: True if file_ops is ready, False otherwise
+        """
+        try:
+            if self.file_ops is None:
+                self.file_ops = FileOperations(base_path, folder_name)
+                
+                # Update scheduler if it exists
+                if hasattr(self, 'scheduler') and self.scheduler:
+                    self.scheduler.file_ops = self.file_ops
+                    if not self.scheduler.scheduler.running:
+                        self.scheduler.start()
+            return True
+        except ValueError as e:
+            self.show_message("Configuration Error", str(e), QMessageBox.Icon.Warning)
+            return False
+        except Exception as e:
+            self.show_message("Error", f"Failed to initialize file operations: {str(e)}", QMessageBox.Icon.Critical)
+            return False
 
     def setup_ui(self):
         self.setWindowTitle("Sortify - Smart File Organizer")
@@ -620,23 +648,14 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'config_manager') and self.config_manager:
                 self.config_manager.set_last_directory('destination', dest_dir)
                 
+            # Ensure file operations is initialized
+            if not self._ensure_file_ops(dest_dir, "Organized Files"):
+                return  # Failed to initialize
+            
             try:
-                # Initialize file operations if needed
-                if self.file_ops is None:
-                    self.file_ops = FileOperations(dest_dir, "Organized Files")
-                    
-                    # Now that file_ops is initialized, we can start the scheduler
-                    if hasattr(self, 'scheduler') and self.scheduler:
-                        self.scheduler.file_ops = self.file_ops
-                        if not self.scheduler.scheduler.running:
-                            self.scheduler.start()
-                    
                 # Show progress
                 self.progress_bar.setVisible(True)
                 self.progress_bar.setValue(0)
-                
-                # Move files
-                total_files = len(self.selected_files)
                 
                 # Create a processing thread to handle file operations
                 self.processing_thread = ProcessingThread(self.selected_files, self.file_ops)
@@ -646,11 +665,7 @@ class MainWindow(QMainWindow):
                 self.processing_thread.start()
                 
                 # Update status
-                self.status_bar.showMessage(f"Organizing {total_files} files...")
-                
-                # These lines are redundant as the thread will handle progress and completion
-                # self.progress_bar.setValue(100)
-                # self.on_processing_finished()
+                self.status_bar.showMessage(f"Organizing {len(self.selected_files)} files...")
                 
             except Exception as e:
                 self.on_processing_error(str(e))
@@ -840,15 +855,9 @@ class MainWindow(QMainWindow):
     def _execute_organization(self, dest_dir):
         """Execute the actual file organization (extracted for reuse)"""
         try:
-            # Initialize file operations if needed
-            if self.file_ops is None:
-                self.file_ops = FileOperations(dest_dir, "Organized Files")
-                
-                # Now that file_ops is initialized, we can start the scheduler
-                if hasattr(self, 'scheduler') and self.scheduler:
-                    self.scheduler.file_ops = self.file_ops
-                    if not self.scheduler.scheduler.running:
-                        self.scheduler.start()
+            # Ensure file operations is initialized
+            if not self._ensure_file_ops(dest_dir, "Organized Files"):
+                return  # Failed to initialize
             
             # Show progress
             self.progress_bar.setVisible(True)
