@@ -809,48 +809,67 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'config_manager') and self.config_manager:
                 self.config_manager.set_last_directory('destination', dest_dir)
             
-            # Create FileOperations in appropriate mode
+            # Show progress
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(0)
+            
             if preview_mode:
-                # DRY-RUN MODE: Preview only
-                temp_file_ops = FileOperations(
+                # DRY-RUN MODE: Create FileOperations in dry-run mode
+                # and use background thread to build the preview
+                self.preview_file_ops = FileOperations(
                     base_path=dest_dir,
                     folder_name="Organized Files",
                     dry_run=True
                 )
                 
-                # Start operations session for dry-run
-                temp_file_ops.start_operations()
+                # Ensure FileOperations is properly initialized
+                if not self.preview_file_ops:
+                    self.progress_bar.setVisible(False)
+                    self.show_message("Error", "Failed to initialize file operations", QMessageBox.Icon.Critical)
+                    return
                 
-                # Process files in dry-run mode
-                for file_path in self.selected_files:
-                    try:
-                        category_path = temp_file_ops.categorize_file(file_path)
-                        temp_file_ops.move_file(file_path, category_path)
-                    except Exception as e:
-                        logging.error(f"Error categorizing {file_path}: {e}")
+                # Create a processing thread for dry-run
+                self.processing_thread = ProcessingThread(self.selected_files, self.preview_file_ops)
+                self.processing_thread.progress.connect(self.update_progress)
+                self.processing_thread.finished.connect(lambda: self._on_preview_finished(dest_dir))
+                self.processing_thread.error.connect(self.on_processing_error)
+                self.processing_thread.start()
                 
-                # End dry-run session
-                temp_file_ops.finalize_operations()
+                # Update status
+                self.status_bar.showMessage(f"Generating preview for {len(self.selected_files)} files...")
                 
-                # Show preview dialog
-                if temp_file_ops.dry_run_manager and temp_file_ops.dry_run_manager.has_operations():
-                    dialog = PreviewDialog(temp_file_ops.dry_run_manager, self)
-                    result = dialog.exec()
-                    
-                    if result == QDialog.DialogCode.Accepted:
-                        # User clicked Continue - execute operations
-                        self._execute_organization(dest_dir)
-                    # else: User cancelled, do nothing
-                else:
-                    self.show_message("Info", "No files to organize.", QMessageBox.Icon.Information)
-                    
             else:
-                # NORMAL MODE: Execute immediately
+                # NORMAL MODE: Execute immediately using background thread
                 self._execute_organization(dest_dir)
                 
         except Exception as e:
+            self.progress_bar.setVisible(False)
             self.show_message("Error", f"Error organizing files: {str(e)}", QMessageBox.Icon.Critical)
             logging.error(f"Error in organize_files: {e}")
+    
+    def _on_preview_finished(self, dest_dir):
+        """Handle preview processing completion - show preview dialog"""
+        try:
+            # Hide progress bar
+            self.progress_bar.setVisible(False)
+            
+            # Show preview dialog with the dry-run results
+            if hasattr(self, 'preview_file_ops') and self.preview_file_ops.dry_run_manager and self.preview_file_ops.dry_run_manager.has_operations():
+                dialog = PreviewDialog(self.preview_file_ops.dry_run_manager, self)
+                result = dialog.exec()
+                
+                if result == QDialog.DialogCode.Accepted:
+                    # User clicked Continue - execute operations for real
+                    self._execute_organization(dest_dir)
+                else:
+                    # User cancelled
+                    self.status_bar.showMessage("Preview cancelled")
+            else:
+                self.show_message("Info", "No files to organize.", QMessageBox.Icon.Information)
+                self.status_bar.showMessage("No files to organize")
+        except Exception as e:
+            self.show_message("Error", f"Error showing preview: {str(e)}", QMessageBox.Icon.Critical)
+            logging.error(f"Error in _on_preview_finished: {e}")
     
     def _execute_organization(self, dest_dir):
         """Execute the actual file organization (extracted for reuse)"""
