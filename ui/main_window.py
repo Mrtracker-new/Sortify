@@ -196,8 +196,9 @@ class MainWindow(QMainWindow):
         from core.categorization import FileCategorizationAI
         self.categorizer = FileCategorizationAI()
         
-        # Initialize scheduler with required parameters
-        self.scheduler = SortScheduler(None, self.categorizer)
+        # Delay scheduler initialization until file_ops is ready
+        # This prevents crashes when scheduled jobs trigger before file_ops exists
+        self.scheduler = None
         
         # Advanced features will be loaded in background
         self.ai_classifier = None
@@ -326,6 +327,7 @@ class MainWindow(QMainWindow):
     def _ensure_file_ops(self, base_path, folder_name):
         """
         Ensure FileOperations is initialized with valid parameters.
+        Also initializes scheduler when file_ops is created.
         
         Args:
             base_path: Base directory path
@@ -338,8 +340,15 @@ class MainWindow(QMainWindow):
             if self.file_ops is None:
                 self.file_ops = FileOperations(base_path, folder_name)
                 
-                # Update scheduler if it exists
-                if hasattr(self, 'scheduler') and self.scheduler:
+                # Initialize scheduler now that file_ops exists
+                if self.scheduler is None:
+                    from core.scheduler import SortScheduler
+                    self.scheduler = SortScheduler(self.file_ops, self.categorizer)
+                    if not self.scheduler.scheduler.running:
+                        self.scheduler.start()
+                    logging.info("Scheduler initialized with file_ops")
+                else:
+                    # Scheduler exists, just update file_ops
                     self.scheduler.file_ops = self.file_ops
                     if not self.scheduler.scheduler.running:
                         self.scheduler.start()
@@ -954,13 +963,10 @@ class MainWindow(QMainWindow):
                                 self.auto_sort_action.setChecked(False)
                                 return
                                 
-                            self.file_ops = FileOperations(dest_dir, "Organized Files")
-                            
-                            # Now that file_ops is initialized, we can start the scheduler
-                            if hasattr(self, 'scheduler') and self.scheduler:
-                                self.scheduler.file_ops = self.file_ops
-                                if not self.scheduler.scheduler.running:
-                                    self.scheduler.start()
+                            # Use _ensure_file_ops to properly initialize file_ops and scheduler
+                            if not self._ensure_file_ops(dest_dir, "Organized Files"):
+                                self.auto_sort_action.setChecked(False)
+                                return
                             
                         # Initialize categorizer
                         from core.categorization import FileCategorizationAI
@@ -1018,13 +1024,9 @@ class MainWindow(QMainWindow):
                     if not dest_dir:
                         return
                         
-                    self.file_ops = FileOperations(dest_dir, "Organized Files")
-                    
-                    # Now that file_ops is initialized, we can start the scheduler
-                    if hasattr(self, 'scheduler') and self.scheduler:
-                        self.scheduler.file_ops = self.file_ops
-                        if not self.scheduler.scheduler.running:
-                            self.scheduler.start()
+                    # Use _ensure_file_ops to properly initialize file_ops and scheduler
+                    if not self._ensure_file_ops(dest_dir, "Organized Files"):
+                        return
                     
                 success, message = self.command_parser.execute_command(parsed_command, self.file_ops)
                 
