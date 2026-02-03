@@ -138,6 +138,11 @@ class FileChangeHandler(FileSystemEventHandler):
     
     def _move_with_retry(self, file_path, category):
         """Try to move a file with retry logic for locked files"""
+        # Guard against None file_ops
+        if self.file_ops is None:
+            logging.error(f"Cannot auto-sort file {file_path}: FileOperations not initialized")
+            return False
+            
         max_retries = 3
         retry_delay = 1.0  # seconds
         
