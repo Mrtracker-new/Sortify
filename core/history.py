@@ -530,6 +530,16 @@ class HistoryManager:
             logging.error(f"Error clearing history: {str(e)}")
             return False
 
+    def close(self):
+        """Explicitly close the database connection"""
+        if hasattr(self, 'db_manager') and self.db_manager:
+            try:
+                # The DatabaseManager handles commit internally
+                self.db_manager.close_all_connections()
+                logger.info("Database connection closed cleanly")
+            except Exception as e:
+                logger.error(f"Error closing database: {e}")
+    
     def __del__(self):
         """Ensure database connections are closed"""
         if hasattr(self, 'db_manager'):
