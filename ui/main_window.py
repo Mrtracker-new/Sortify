@@ -345,6 +345,57 @@ class MainWindow(QMainWindow):
             self.loader_thread.deleteLater()
             self.loader_thread = None
     
+    def closeEvent(self, event):
+        """Handle window close event"""
+        try:
+            logging.info("Application closing, cleaning up resources...")
+            
+            # Close history manager database connection
+            if hasattr(self, 'history_manager') and self.history_manager:
+                self.history_manager.close()
+                logging.info("History manager closed")
+            
+            # Finalize file operations if active
+            if hasattr(self, 'file_ops') and self.file_ops:
+                if hasattr(self.file_ops, 'session_active') and self.file_ops.session_active:
+                    self.file_ops.finalize_operations()
+                    logging.info("File operations finalized")
+            
+            # Clean up background threads
+            if hasattr(self, 'processing_thread') and self.processing_thread:
+                if self.processing_thread.isRunning():
+                    self.processing_thread.cancel()
+                    self.processing_thread.quit()
+                    self.processing_thread.wait()
+                self.processing_thread.deleteLater()
+                logging.info("Processing thread cleaned up")
+            
+            if hasattr(self, 'loader_thread') and self.loader_thread:
+                if self.loader_thread.isRunning():
+                    self.loader_thread.quit()
+                    self.loader_thread.wait()
+                self.loader_thread.deleteLater()
+                logging.info("Loader thread cleaned up")
+            
+            # Stop scheduler
+            if hasattr(self, 'scheduler') and self.scheduler:
+                self.scheduler.stop()
+                logging.info("Scheduler stopped")
+            
+            # Stop watcher
+            if hasattr(self, 'watcher') and self.watcher:
+                self.watcher.stop()
+                logging.info("Watcher stopped")
+            
+            logging.info("Resource cleanup completed successfully")
+            event.accept()
+            
+        except Exception as e:
+            logging.error(f"Error during window close: {e}")
+            # Accept the event anyway to allow the window to close
+            event.accept()
+
+    
     def _ensure_file_ops(self, base_path, folder_name):
         """
         Ensure FileOperations is initialized with valid parameters.
