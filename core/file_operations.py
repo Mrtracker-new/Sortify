@@ -157,7 +157,7 @@ class FileOperations:
         # If we've exhausted all attempts without returning
         return None, None
 
-    def __init__(self, base_path=None, folder_name=None, safety_config=None, dry_run=False, skip_confirmations=False):
+    def __init__(self, base_path=None, folder_name=None, safety_config=None, dry_run=False, skip_confirmations=False, allowed_dirs=None):
         """
         Initialize FileOperations with customizable base path and folder name
         
@@ -167,6 +167,7 @@ class FileOperations:
             safety_config (dict, optional): Configuration for safety features
             dry_run (bool): If True, only preview operations without executing them
             skip_confirmations (bool): If True, skip all confirmation dialogs
+            allowed_dirs (list, optional): List of additional allowed directories for file operations
             
         Raises:
             ValueError: If base_path or folder_name are None in non-dry-run mode
@@ -205,6 +206,8 @@ class FileOperations:
         self.safety = SafetyManager(config=safety_config)
         self.session_active = False
         
+        # Initialize allowed directories for security validation
+        self._initialize_allowed_directories(allowed_dirs)
         
         # Only create directory in non-dry-run mode
         if not dry_run:
@@ -230,6 +233,95 @@ class FileOperations:
             'personal': ['documents', 'finance', 'records'],
             'misc': ['other']
         }
+
+    def _initialize_allowed_directories(self, additional_dirs=None):
+        """
+        Initialize the list of allowed directories for file operations
+        
+        Args:
+            additional_dirs (list, optional): Additional directories to allow
+        """
+        # Default allowed directories
+        self.allowed_dirs = [
+            self.base_dir.resolve(),  # Organization folder
+            Path.home().resolve(),    # User home directory
+        ]
+        
+        # Add any additional directories
+        if additional_dirs:
+            for dir_path in additional_dirs:
+                try:
+                    resolved_path = Path(dir_path).resolve()
+                    if resolved_path.exists() and resolved_path.is_dir():
+                        self.allowed_dirs.append(resolved_path)
+                except Exception:
+                    # Skip invalid paths
+                    pass
+    
+    def _validate_path(self, path, must_exist=True, operation_type="operation"):
+        """
+        Validate file path for security
+        
+        Args:
+            path (str or Path): Path to validate
+            must_exist (bool): Whether the path must exist
+            operation_type (str): Type of operation for error messages
+            
+        Returns:
+            Path: Validated absolute path
+            
+        Raises:
+            ValueError: If path is invalid or outside allowed directories
+            FileNotFoundError: If path doesn't exist and must_exist is True
+            SecurityError: If path appears to be malicious
+        """
+        try:
+            # Convert to Path object and resolve (handles symlinks and ..)
+            path = Path(path).resolve()
+            
+            # Check for system/protected files (starting with .)
+            if path.name.startswith('.') and path.name not in ['.txt', '.pdf']:
+                raise ValueError(
+                    f"Cannot perform {operation_type} on hidden/system files: {path.name}"
+                )
+            
+            # Check if path is within allowed directories
+            is_allowed = False
+            for allowed_dir in self.allowed_dirs:
+                try:
+                    # Check if path is relative to allowed directory
+                    path.relative_to(allowed_dir)
+                    is_allowed = True
+                    break
+                except ValueError:
+                    # Not relative to this allowed directory, continue checking
+                    continue
+            
+            if not is_allowed:
+                raise ValueError(
+                    f"Path outside allowed directories: {path}\n"
+                    f"Allowed directories: {', '.join(str(d) for d in self.allowed_dirs[:2])}"
+                )
+            
+            # Check for Windows system directories
+            if os.name == 'nt':
+                system_dirs = ['windows', 'program files', 'program files (x86)', 'programdata']
+                path_lower = str(path).lower()
+                for sys_dir in system_dirs:
+                    if f'\\{sys_dir}\\' in path_lower or path_lower.startswith(f'c:\\{sys_dir}'):
+                        raise ValueError(
+                            f"Cannot perform {operation_type} on system directory: {path}"
+                        )
+            
+            # Check existence if required
+            if must_exist and not path.exists():
+                raise FileNotFoundError(f"File not found: {path}")
+            
+            return path
+            
+        except (OSError, RuntimeError) as e:
+            # Handle path resolution errors
+            raise ValueError(f"Invalid path for {operation_type}: {path} - {str(e)}")
 
     def create_category_folders(self):
         """Create all category folders"""
@@ -271,9 +363,8 @@ class FileOperations:
             Path: Destination path where the file was copied (or would be copied in dry-run mode)
         """
         try:
-            source_path = Path(source_path)
-            if not source_path.exists():
-                raise FileNotFoundError(f"File not found: {source_path}")
+            # SECURITY: Validate source path
+            source_path = self._validate_path(source_path, must_exist=True, operation_type="copy")
 
             # Parse the category path
             if '/' in category_path:
@@ -320,9 +411,8 @@ class FileOperations:
             Path: Destination path where the file was moved (or would be moved in dry-run mode)
         """
         try:
-            source_path = Path(source_path)
-            if not source_path.exists():
-                raise FileNotFoundError(f"File not found: {source_path}")
+            # SECURITY: Validate source path
+            source_path = self._validate_path(source_path, must_exist=True, operation_type="move")
             
             # Parse the category path
             if '/' in category_path:
@@ -388,9 +478,8 @@ class FileOperations:
             Path: New file path
         """
         try:
-            file_path = Path(file_path)
-            if not file_path.exists():
-                raise FileNotFoundError(f"File not found: {file_path}")
+            # SECURITY: Validate file path
+            file_path = self._validate_path(file_path, must_exist=True, operation_type="rename")
 
             
             default_options = {
@@ -547,7 +636,8 @@ class FileOperations:
         Returns:
             str: category/subcategory path
         """
-        file_path = Path(file_path)
+        # SECURITY: Validate file path
+        file_path = self._validate_path(file_path, must_exist=True, operation_type="categorize")
         file_ext = file_path.suffix.lower().replace('.', '')
         file_name = file_path.name.lower()
         
