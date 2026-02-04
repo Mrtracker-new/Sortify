@@ -7,128 +7,155 @@ from .history import HistoryManager
 from .safety_manager import SafetyManager
 
 class FileOperations:
-    def setup_organization(self, parent=None):
+    def setup_organization(self, parent=None, max_attempts=3):
         """
         Prompt user for organization folder details and validate the path using GUI dialogs
         
         Args:
             parent: Parent widget for the dialogs
+            max_attempts: Maximum number of attempts to set up organization (default: 3)
             
         Returns:
-            tuple: (base_path, folder_name) containing validated path and folder name
+            tuple: (base_path, folder_name) containing validated path and folder name, or (None, None) if failed
         """
-        try:
-            # Step 1: Choose Location
-            location_options = [
-                "Desktop (~/Desktop)",
-                "Documents (~/Documents)",
-                "Custom Path",
-                "Root Drive (C:/)"
-            ]
-            
-            location, ok = QInputDialog.getItem(
-                parent,
-                "Organization Folder Location",
-                "Where would you like to create your organization folder?",
-                location_options,
-                0,  # Default to first option
-                False  # Not editable
-            )
-            
-            if not ok:
-                return None, None
+        for attempt in range(max_attempts):
+            try:
+                # Step 1: Choose Location
+                location_options = [
+                    "Desktop (~/Desktop)",
+                    "Documents (~/Documents)",
+                    "Custom Path",
+                    "Root Drive (C:/)"
+                ]
                 
-            if "Desktop" in location:
-                base_path = os.path.expanduser("~/Desktop")
-            elif "Documents" in location:
-                base_path = os.path.expanduser("~/Documents")
-            elif "Custom Path" in location:
-                base_path = QFileDialog.getExistingDirectory(
+                location, ok = QInputDialog.getItem(
                     parent,
-                    "Select Custom Location",
-                    os.path.expanduser("~")
+                    "Organization Folder Location",
+                    "Where would you like to create your organization folder?",
+                    location_options,
+                    0,  # Default to first option
+                    False  # Not editable
                 )
-                if not base_path:  # User cancelled
+                
+                if not ok:
                     return None, None
-            else:  # Root Drive
-                base_path = "C:/"
-            
-            # Step 2: Name Your Organization Folder
-            name_options = [
-                "Organized Files",
-                "My Files",
-                "File System",
-                "Custom Name"
-            ]
-            
-            name_choice, ok = QInputDialog.getItem(
-                parent,
-                "Organization Folder Name",
-                "Choose a name for your organization folder:",
-                name_options,
-                0,  # Default to first option
-                False  # Not editable
-            )
-            
-            if not ok:
-                return None, None
-                
-            if name_choice == "Custom Name":
-                folder_name, ok = QInputDialog.getText(
-                    parent,
-                    "Custom Folder Name",
-                    "Enter your custom folder name:"
-                )
-                if not ok or not folder_name:
-                    return None, None
-            else:
-                folder_name = name_choice
-            
-            # Validate the path
-            full_path = Path(base_path) / folder_name
-            
-            if full_path.exists():
-                response = QMessageBox.question(
-                    parent,
-                    "Folder Already Exists",
-                    f"Folder '{folder_name}' already exists at {base_path}. Use existing folder?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No
-                )
-                
-                if response != QMessageBox.StandardButton.Yes:
-                    return self.setup_organization(parent)  # Try again
-            else:
-                # Test if we can create the folder
-                try:
-                    full_path.mkdir(parents=True)
-                    full_path.rmdir()  # Remove the test directory
-                except PermissionError:
-                    QMessageBox.critical(
+                    
+                if "Desktop" in location:
+                    base_path = os.path.expanduser("~/Desktop")
+                elif "Documents" in location:
+                    base_path = os.path.expanduser("~/Documents")
+                elif "Custom Path" in location:
+                    base_path = QFileDialog.getExistingDirectory(
                         parent,
-                        "Permission Error",
-                        f"No permission to create folder at {base_path}\nPlease choose a different location."
+                        "Select Custom Location",
+                        os.path.expanduser("~")
                     )
-                    return self.setup_organization(parent)  # Try again
-                except Exception as e:
+                    if not base_path:  # User cancelled
+                        return None, None
+                else:  # Root Drive
+                    base_path = "C:/"
+                
+                # Step 2: Name Your Organization Folder
+                name_options = [
+                    "Organized Files",
+                    "My Files",
+                    "File System",
+                    "Custom Name"
+                ]
+                
+                name_choice, ok = QInputDialog.getItem(
+                    parent,
+                    "Organization Folder Name",
+                    "Choose a name for your organization folder:",
+                    name_options,
+                    0,  # Default to first option
+                    False  # Not editable
+                )
+                
+                if not ok:
+                    return None, None
+                    
+                if name_choice == "Custom Name":
+                    folder_name, ok = QInputDialog.getText(
+                        parent,
+                        "Custom Folder Name",
+                        "Enter your custom folder name:"
+                    )
+                    if not ok or not folder_name:
+                        return None, None
+                else:
+                    folder_name = name_choice
+                
+                # Validate the path
+                full_path = Path(base_path) / folder_name
+                
+                if full_path.exists():
+                    response = QMessageBox.question(
+                        parent,
+                        "Folder Already Exists",
+                        f"Folder '{folder_name}' already exists at {base_path}. Use existing folder?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No
+                    )
+                    
+                    if response != QMessageBox.StandardButton.Yes:
+                        continue  # Try again
+                else:
+                    # Test if we can create the folder
+                    try:
+                        full_path.mkdir(parents=True)
+                        full_path.rmdir()  # Remove the test directory
+                    except PermissionError:
+                        if attempt == max_attempts - 1:
+                            QMessageBox.critical(
+                                parent,
+                                "Error",
+                                "Unable to create folder after multiple attempts.\nPlease check your permissions."
+                            )
+                            return None, None
+                        QMessageBox.critical(
+                            parent,
+                            "Permission Error",
+                            f"No permission to create folder at {base_path}\nPlease choose a different location."
+                        )
+                        continue  # Try again
+                    except Exception as e:
+                        if attempt == max_attempts - 1:
+                            QMessageBox.critical(
+                                parent,
+                                "Error",
+                                f"Unable to create folder after multiple attempts.\nLast error: {str(e)}"
+                            )
+                            return None, None
+                        QMessageBox.critical(
+                            parent,
+                            "Error",
+                            f"Error creating folder: {str(e)}\nPlease choose a different location."
+                        )
+                        continue  # Try again
+                
+                QMessageBox.information(
+                    parent,
+                    "Success",
+                    f"Organization folder will be created at: {full_path}"
+                )
+                
+                return base_path, folder_name
+                
+            except Exception as e:
+                if attempt == max_attempts - 1:
                     QMessageBox.critical(
                         parent,
                         "Error",
-                        f"Error creating folder: {str(e)}\nPlease choose a different location."
+                        f"Setup failed after {max_attempts} attempts.\nError: {str(e)}"
                     )
-                    return self.setup_organization(parent)  # Try again
-            
-            QMessageBox.information(
-                parent,
-                "Success",
-                f"Organization folder will be created at: {full_path}"
-            )
-            
-            return base_path, folder_name
-            
-        except Exception as e:
+                    return None, None
                 print(f"\n❌ Error: {str(e)}")
                 print("Please try again.")
+                continue
+        
+        # If we've exhausted all attempts without returning
+        return None, None
 
     def __init__(self, base_path=None, folder_name=None, safety_config=None, dry_run=False, skip_confirmations=False):
         """
