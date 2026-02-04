@@ -21,22 +21,36 @@ class ProcessingThread(QThread):
     progress = pyqtSignal(int)
     finished = pyqtSignal()
     error = pyqtSignal(str)
+    cancelled = pyqtSignal()  # Signal emitted when operation is cancelled
 
     def __init__(self, files, file_ops):
         super().__init__()
         self.files = files
         self.file_ops = file_ops
+        self._cancelled = False  # Cancellation flag
 
     def run(self):
         try:
             total = len(self.files)
             for i, file in enumerate(self.files, 1):
+                # Check for cancellation
+                if self._cancelled:
+                    logging.info("Operation cancelled by user")
+                    self.cancelled.emit()  # Emit cancelled signal
+                    return  # Exit early
+                
                 # Process each file
                 self.file_ops.move_file(file, self.file_ops.categorize_file(file))
                 self.progress.emit(int((i / total) * 100))
             self.finished.emit()
         except Exception as e:
-            self.error.emit(str(e))
+            if not self._cancelled:  # Only emit error if not cancelled
+                self.error.emit(str(e))
+    
+    def cancel(self):
+        """Cancel the ongoing operation"""
+        self._cancelled = True
+        logging.info("Cancellation requested for processing thread")
 
 class ModelLoaderThread(QThread):
     """
@@ -467,9 +481,18 @@ class MainWindow(QMainWindow):
         self.file_list.setMinimumHeight(200)
         self.file_list.setAcceptDrops(True)
         
-        # Progress bar
+        # Progress bar and cancel button
+        progress_layout = QHBoxLayout()
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
+        
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.setMinimumHeight(40)
+        self.cancel_button.setVisible(False)
+        self.cancel_button.clicked.connect(self._cancel_operation)
+        
+        progress_layout.addWidget(self.progress_bar)
+        progress_layout.addWidget(self.cancel_button)
 
         # organization options
         organize_layout = QHBoxLayout()
@@ -493,7 +516,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(organize_layout)
         layout.addWidget(file_list_label)
         layout.addWidget(self.file_list)
-        layout.addWidget(self.progress_bar)
+        layout.addLayout(progress_layout)
 
         # Connect signals
         self.select_button.clicked.connect(self.select_files)
@@ -669,9 +692,10 @@ class MainWindow(QMainWindow):
                 return  # Failed to initialize
             
             try:
-                # Show progress
+                # Show progress and cancel button
                 self.progress_bar.setVisible(True)
                 self.progress_bar.setValue(0)
+                self.cancel_button.setVisible(True)
                 
                 # Clean up previous thread if it exists
                 if hasattr(self, 'processing_thread') and self.processing_thread:
@@ -685,6 +709,7 @@ class MainWindow(QMainWindow):
                 self.processing_thread.progress.connect(self.update_progress)
                 self.processing_thread.finished.connect(self.on_processing_finished)
                 self.processing_thread.error.connect(self.on_processing_error)
+                self.processing_thread.cancelled.connect(self.on_processing_cancelled)
                 self.processing_thread.start()
                 
                 # Update status
@@ -700,6 +725,7 @@ class MainWindow(QMainWindow):
     def on_processing_finished(self):
         """Handle processing completion"""
         self.progress_bar.setVisible(False)
+        self.cancel_button.setVisible(False)
         self.file_list.clear()
         self.selected_files = []
         self.refresh_history()
@@ -716,6 +742,7 @@ class MainWindow(QMainWindow):
     def on_processing_error(self, error_msg):
         """Handle processing error"""
         self.progress_bar.setVisible(False)
+        self.cancel_button.setVisible(False)
         self.status_bar.showMessage("Error organizing files")
         self.show_message("Error", f"Error organizing files: {error_msg}")
         
@@ -725,6 +752,26 @@ class MainWindow(QMainWindow):
             self.processing_thread.wait()
             self.processing_thread.deleteLater()
             self.processing_thread = None
+    
+    def on_processing_cancelled(self):
+        """Handle processing cancellation"""
+        self.progress_bar.setVisible(False)
+        self.cancel_button.setVisible(False)
+        self.status_bar.showMessage("Operation cancelled by user")
+        self.show_message("Cancelled", "File operation was cancelled", QMessageBox.Icon.Information)
+        
+        # Clean up thread
+        if hasattr(self, 'processing_thread') and self.processing_thread:
+            self.processing_thread.quit()
+            self.processing_thread.wait()
+            self.processing_thread.deleteLater()
+            self.processing_thread = None
+    
+    def _cancel_operation(self):
+        """Cancel the current file operation"""
+        if hasattr(self, 'processing_thread') and self.processing_thread:
+            self.processing_thread.cancel()
+            logging.info("User requested operation cancellation")
 
     def undo_last_action(self):
         """Undo the last file operation"""
