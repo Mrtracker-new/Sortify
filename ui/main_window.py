@@ -323,6 +323,13 @@ class MainWindow(QMainWindow):
         else:
             self.status_bar.showMessage("Ready (Basic Mode)")
             logging.warning("Advanced features failed to load.")
+        
+        # Clean up loader thread
+        if hasattr(self, 'loader_thread') and self.loader_thread:
+            self.loader_thread.quit()
+            self.loader_thread.wait()
+            self.loader_thread.deleteLater()
+            self.loader_thread = None
     
     def _ensure_file_ops(self, base_path, folder_name):
         """
@@ -666,6 +673,13 @@ class MainWindow(QMainWindow):
                 self.progress_bar.setVisible(True)
                 self.progress_bar.setValue(0)
                 
+                # Clean up previous thread if it exists
+                if hasattr(self, 'processing_thread') and self.processing_thread:
+                    if self.processing_thread.isRunning():
+                        self.processing_thread.quit()
+                        self.processing_thread.wait()
+                    self.processing_thread.deleteLater()
+                
                 # Create a processing thread to handle file operations
                 self.processing_thread = ProcessingThread(self.selected_files, self.file_ops)
                 self.processing_thread.progress.connect(self.update_progress)
@@ -691,12 +705,26 @@ class MainWindow(QMainWindow):
         self.refresh_history()
         self.status_bar.showMessage("Files organized successfully")
         self.show_message("Success", "Files have been organized successfully!")
+        
+        # Clean up thread
+        if hasattr(self, 'processing_thread') and self.processing_thread:
+            self.processing_thread.quit()
+            self.processing_thread.wait()
+            self.processing_thread.deleteLater()
+            self.processing_thread = None
 
     def on_processing_error(self, error_msg):
         """Handle processing error"""
         self.progress_bar.setVisible(False)
         self.status_bar.showMessage("Error organizing files")
         self.show_message("Error", f"Error organizing files: {error_msg}")
+        
+        # Clean up thread
+        if hasattr(self, 'processing_thread') and self.processing_thread:
+            self.processing_thread.quit()
+            self.processing_thread.wait()
+            self.processing_thread.deleteLater()
+            self.processing_thread = None
 
     def undo_last_action(self):
         """Undo the last file operation"""
@@ -837,6 +865,13 @@ class MainWindow(QMainWindow):
                     self.show_message("Error", "Failed to initialize file operations", QMessageBox.Icon.Critical)
                     return
                 
+                # Clean up previous thread if it exists
+                if hasattr(self, 'processing_thread') and self.processing_thread:
+                    if self.processing_thread.isRunning():
+                        self.processing_thread.quit()
+                        self.processing_thread.wait()
+                    self.processing_thread.deleteLater()
+                
                 # Create a processing thread for dry-run
                 self.processing_thread = ProcessingThread(self.selected_files, self.preview_file_ops)
                 self.processing_thread.progress.connect(self.update_progress)
@@ -890,6 +925,13 @@ class MainWindow(QMainWindow):
             # Show progress
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)
+            
+            # Clean up previous thread if it exists
+            if hasattr(self, 'processing_thread') and self.processing_thread:
+                if self.processing_thread.isRunning():
+                    self.processing_thread.quit()
+                    self.processing_thread.wait()
+                self.processing_thread.deleteLater()
             
             # Create a processing thread to handle file operations
             self.processing_thread = ProcessingThread(self.selected_files, self.file_ops)
@@ -1207,3 +1249,29 @@ class MainWindow(QMainWindow):
             else:
                 self.status_bar.showMessage("Failed to undo session")
                 self.show_message("Warning", message, QMessageBox.Icon.Warning)
+    
+    def closeEvent(self, event):
+        """Clean up threads before closing the application"""
+        # Clean up processing thread
+        if hasattr(self, 'processing_thread') and self.processing_thread:
+            if self.processing_thread.isRunning():
+                self.processing_thread.quit()
+                self.processing_thread.wait()
+            self.processing_thread.deleteLater()
+        
+        # Clean up loader thread
+        if hasattr(self, 'loader_thread') and self.loader_thread:
+            if self.loader_thread.isRunning():
+                self.loader_thread.quit()
+                self.loader_thread.wait()
+            self.loader_thread.deleteLater()
+        
+        # Clean up watcher
+        if self.watcher:
+            self.watcher.stop()
+        
+        # Clean up scheduler
+        if self.scheduler:
+            self.scheduler.stop()
+        
+        event.accept()
