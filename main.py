@@ -6,6 +6,7 @@ import sqlite3.dbapi2  # Explicitly import to ensure it's included in the build
 import time
 import traceback
 import argparse
+import atexit
 from pathlib import Path
 
 # Set up spaCy model path before importing any modules that use spaCy
@@ -512,6 +513,22 @@ def main():
     # Initialize application
     app = QApplication(sys.argv)
     
+    # Global reference to history_manager for cleanup
+    history_manager = None
+    
+    # Define cleanup function
+    def cleanup():
+        """Clean up resources before exit"""
+        try:
+            if history_manager:
+                history_manager.close()
+            logger.info("Cleanup completed")
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+    
+    # Register cleanup handler
+    atexit.register(cleanup)
+    
     # Set application name and organization
     app.setApplicationName("Sortify")
     app.setOrganizationName("RNR")
@@ -572,7 +589,7 @@ def main():
     # Initialize history manager with retry logic
     max_retries = 3
     retry_delay = 1.0
-    history_manager = None
+    # history_manager already declared as nonlocal in cleanup
     
     for attempt in range(max_retries):
         try:
