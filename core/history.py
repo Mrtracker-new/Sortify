@@ -90,8 +90,24 @@ def check_file_permissions(file_path):
 class HistoryManager:
     """Manages the history database for file operations"""
     
+    # Singleton pattern: Class-level variables
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        """Implement singleton pattern with thread-safe double-checked locking"""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+    
     def __init__(self):
         """Initialize the history manager"""
+        # Prevent re-initialization of singleton instance
+        if hasattr(self, '_initialized') and self._initialized:
+            return
+        
         try:
             # Get the path to the database file
             self.data_dir = get_data_dir()
@@ -117,7 +133,10 @@ class HistoryManager:
             # Run database migration to add session support
             self._migrate_database()
             
-            logger.info("History manager initialized successfully")
+            # Mark as initialized
+            self._initialized = True
+            
+            logger.info("History manager initialized successfully (singleton)")
         except Exception as e:
             logger.error(f"Failed to initialize history manager: {e}")
             raise
