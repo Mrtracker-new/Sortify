@@ -10,6 +10,7 @@ from core.scheduler import SortScheduler
 from core.ai_categorizer import AIFileClassifier
 from core.image_analyzer import ImageAnalyzer
 from core.command_parser import CommandParser
+from core.config_manager import ConfigManager
 from .settings_window import SettingsWindow
 from pathlib import Path
 from datetime import datetime
@@ -217,6 +218,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.history_manager = history_manager
         self.selected_files = []
+        
+        # Initialize config manager for persistent settings
+        self.config_manager = ConfigManager()
         
         # Initialize components - set file_ops to None initially
         # It will be initialized only when needed
