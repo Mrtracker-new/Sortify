@@ -335,8 +335,17 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage("Ready (AI Enabled)")
             logging.info("Advanced features accepted and loaded.")
         else:
-            self.status_bar.showMessage("Ready (Basic Mode)")
+            self.status_bar.showMessage("Ready (Basic Mode - AI Unavailable)")
             logging.warning("Advanced features failed to load.")
+            
+            # Show warning dialog to inform user about AI unavailability
+            QMessageBox.warning(
+                self, 
+                "AI Features Unavailable",
+                "Advanced AI features could not be loaded. "
+                "The app will use basic file categorization.\n\n"
+                "You can still organize files, but categorization may be less accurate."
+            )
         
         # Clean up loader thread
         if hasattr(self, 'loader_thread') and self.loader_thread:
