@@ -19,7 +19,7 @@ import os
 
 class ProcessingThread(QThread):
     progress = pyqtSignal(int)
-    finished = pyqtSignal()
+    finished = pyqtSignal(dict)  # Now emits results dictionary
     error = pyqtSignal(str)
     cancelled = pyqtSignal()  # Signal emitted when operation is cancelled
 
@@ -30,9 +30,11 @@ class ProcessingThread(QThread):
         self._cancelled = False  # Cancellation flag
 
     def run(self):
-        try:
-            total = len(self.files)
-            for i, file in enumerate(self.files, 1):
+        results = {'success': [], 'failed': []}
+        total = len(self.files)
+        
+        for i, file in enumerate(self.files, 1):
+            try:
                 # Check for cancellation
                 if self._cancelled:
                     logging.info("Operation cancelled by user")
@@ -40,12 +42,27 @@ class ProcessingThread(QThread):
                     return  # Exit early
                 
                 # Process each file
-                self.file_ops.move_file(file, self.file_ops.categorize_file(file))
-                self.progress.emit(int((i / total) * 100))
-            self.finished.emit()
-        except Exception as e:
-            if not self._cancelled:  # Only emit error if not cancelled
-                self.error.emit(str(e))
+                category = self.file_ops.categorize_file(file)
+                result = self.file_ops.move_file(file, category)
+                
+                if result:  # move_file returns None if user cancels confirmation
+                    results['success'].append((file, str(result)))
+                    logging.info(f"Successfully processed: {file}")
+                else:
+                    results['failed'].append((file, "User cancelled operation"))
+                    logging.warning(f"Operation cancelled for: {file}")
+                    
+            except Exception as e:
+                # Log the error but continue processing other files
+                error_msg = str(e)
+                logging.error(f"Failed to process {file}: {error_msg}")
+                results['failed'].append((file, error_msg))
+            
+            # Update progress regardless of success/failure
+            self.progress.emit(int((i / total) * 100))
+        
+        # Emit results with success and failure details
+        self.finished.emit(results)
     
     def cancel(self):
         """Cancel the ongoing operation"""
@@ -782,15 +799,58 @@ class MainWindow(QMainWindow):
         """Update progress bar"""
         self.progress_bar.setValue(value)
 
-    def on_processing_finished(self):
-        """Handle processing completion"""
+    def on_processing_finished(self, results):
+        """Handle processing completion with detailed results
+        
+        Args:
+            results (dict): Dictionary with 'success' and 'failed' lists
+        """
         self.progress_bar.setVisible(False)
         self.cancel_button.setVisible(False)
         self.file_list.clear()
         self.selected_files = []
         self.refresh_history()
-        self.status_bar.showMessage("Files organized successfully")
-        self.show_message("Success", "Files have been organized successfully!")
+        
+        # Calculate counts
+        success_count = len(results.get('success', []))
+        failed_count = len(results.get('failed', []))
+        total_count = success_count + failed_count
+        
+        # Build status message
+        if failed_count == 0:
+            # All successful
+            self.status_bar.showMessage(f"All {success_count} files organized successfully")
+            self.show_message("Success", f"✅ Successfully processed {success_count} file(s)!")
+        elif success_count == 0:
+            # All failed
+            self.status_bar.showMessage("Failed to organize files")
+            error_details = "\n".join([f"• {Path(file).name}: {error}" for file, error in results['failed'][:5]])
+            if failed_count > 5:
+                error_details += f"\n... and {failed_count - 5} more"
+            self.show_message(
+                "Error", 
+                f"❌ Failed to process all {failed_count} file(s):\n\n{error_details}",
+                QMessageBox.Icon.Critical
+            )
+        else:
+            # Partial success
+            self.status_bar.showMessage(f"Processed {success_count}/{total_count} files successfully")
+            
+            # Build detailed message
+            msg = f"📊 Operation Summary:\n\n"
+            msg += f"✅ Successfully processed: {success_count} file(s)\n"
+            msg += f"❌ Failed: {failed_count} file(s)\n\n"
+            
+            # Show details of failures (limit to first 5)
+            if failed_count > 0:
+                msg += "Failed files:\n"
+                for file, error in results['failed'][:5]:
+                    msg += f"• {Path(file).name}\n  Error: {error}\n"
+                
+                if failed_count > 5:
+                    msg += f"\n... and {failed_count - 5} more failures"
+            
+            self.show_message("Partial Success", msg, QMessageBox.Icon.Warning)
         
         # Clean up thread
         if hasattr(self, 'processing_thread') and self.processing_thread:
@@ -982,7 +1042,7 @@ class MainWindow(QMainWindow):
                 # Create a processing thread for dry-run
                 self.processing_thread = ProcessingThread(self.selected_files, self.preview_file_ops)
                 self.processing_thread.progress.connect(self.update_progress)
-                self.processing_thread.finished.connect(lambda: self._on_preview_finished(dest_dir))
+                self.processing_thread.finished.connect(lambda results: self._on_preview_finished(dest_dir))
                 self.processing_thread.error.connect(self.on_processing_error)
                 self.processing_thread.start()
                 
