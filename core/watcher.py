@@ -63,7 +63,9 @@ class FileChangeHandler(FileSystemEventHandler):
                 self.processing_files.add(str(file_path))
             
             # Wait for the file to be fully written and stable
-            self._wait_for_file_stability(file_path)
+            if not self._wait_for_file_stability(file_path):
+                logging.warning(f"File not ready for processing (locked or timeout): {file_path}")
+                return
             
             # Check if file still exists after waiting
             if not file_path.exists():
@@ -101,10 +103,31 @@ class FileChangeHandler(FileSystemEventHandler):
             with self.lock:
                 self.processing_files.discard(str(file_path))
     
-    def _wait_for_file_stability(self, file_path):
-        """Wait for a file to be fully written and stable"""
-        max_wait_time = 10  # Maximum seconds to wait for file stability
-        check_interval = 0.5  # Time between size checks
+    def _is_file_ready(self, file_path):
+        """Check if file is ready to be moved (not locked by another process)"""
+        try:
+            # Try to open with exclusive access to check if file is locked
+            with open(file_path, 'r+b') as f:
+                pass  # Can open = not locked
+            return True
+        except (IOError, PermissionError, OSError):
+            return False  # File is locked or inaccessible
+    
+    def _wait_for_file_stability(self, file_path, timeout=30):
+        """Wait for a file to be fully written and stable
+        
+        This enhanced version checks both:
+        1. File size stability (file has stopped growing)
+        2. File lock status (file is not locked by another process)
+        
+        This prevents moving files that are:
+        - Still being downloaded
+        - Being copied from network drives
+        - Being scanned by antivirus
+        - Being synced by cloud services
+        """
+        start_time = time.time()
+        last_size = -1
         
         # First, wait for minimum file age
         try:
@@ -112,29 +135,34 @@ class FileChangeHandler(FileSystemEventHandler):
             while (time.time() - creation_time) < self.min_file_age:
                 time.sleep(0.1)
         except (FileNotFoundError, OSError):
-            return  # File disappeared
+            return False  # File disappeared
         
-        # Then check for file size stability
-        try:
-            last_size = -1
-            start_time = time.time()
+        # Then check for both size stability AND file readiness
+        while time.time() - start_time < timeout:
+            if not file_path.exists():
+                return False  # File disappeared
             
-            while time.time() - start_time < max_wait_time:
-                if not file_path.exists():
-                    return  # File disappeared
-                    
+            try:
                 current_size = file_path.stat().st_size
                 
-                if current_size == last_size and current_size > 0:
-                    # File size has stabilized
-                    time.sleep(0.5)  # Final wait to ensure file is fully written
-                    return
+                # Check if size has stabilized and file is ready
+                if current_size == last_size and current_size > 0 and self._is_file_ready(file_path):
+                    time.sleep(1)  # Extra safety margin
                     
-                last_size = current_size
-                time.sleep(check_interval)
+                    # Double-check file is still ready after the safety sleep
+                    if self._is_file_ready(file_path):
+                        return True
                 
-        except (FileNotFoundError, OSError):
-            return  # File disappeared during checks
+                last_size = current_size
+                time.sleep(0.5)
+                
+            except (FileNotFoundError, OSError) as e:
+                logging.debug(f"File check failed for {file_path}: {e}")
+                return False  # File disappeared or became inaccessible
+        
+        # Timeout reached
+        logging.warning(f"File stability timeout reached for {file_path}")
+        return False
     
     def _move_with_retry(self, file_path, category):
         """Try to move a file with retry logic for locked files"""
