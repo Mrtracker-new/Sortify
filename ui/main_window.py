@@ -374,6 +374,82 @@ class MainWindow(QMainWindow):
             self.loader_thread.wait()
             self.loader_thread.deleteLater()
             self.loader_thread = None
+        
+        # Apply saved settings after models are loaded
+        self.apply_saved_settings()
+    
+    def apply_saved_settings(self):
+        """Apply saved settings from config on application startup"""
+        if not self.config_manager:
+            return
+        
+        try:
+            logging.info("Applying saved settings from config")
+            
+            # Auto-sort settings
+            if self.config_manager.get('auto_sort_enabled', False):
+                watch_folder = self.config_manager.get('watch_folder', '')
+                if watch_folder and Path(watch_folder).exists():
+                    # Ensure file_ops is initialized
+                    if not self.file_ops:
+                        logging.info("Skipping auto-sort: file_ops not initialized")
+                        return
+                    
+                    # Start watcher
+                    try:
+                        self.watcher = FolderWatcher(watch_folder, self.file_ops, self.categorizer)
+                        self.watcher.start()
+                        self.status_bar.showMessage(f"Auto-sort enabled for {Path(watch_folder).name}")
+                        logging.info(f"Started auto-sort watcher for: {watch_folder}")
+                    except Exception as e:
+                        logging.error(f"Error starting watcher: {e}")
+            
+            # Schedule settings
+            if self.config_manager.get('schedule_enabled', False):
+                schedule_folder = self.config_manager.get('schedule_folder', '')
+                if schedule_folder and Path(schedule_folder).exists():
+                    # Ensure file_ops and scheduler are initialized
+                    if not self.file_ops:
+                        logging.info("Skipping scheduler: file_ops not initialized")
+                        return
+                    
+                    if not self.scheduler:
+                        self.scheduler = SortScheduler(self.file_ops, self.categorizer)
+                        self.scheduler.start()
+                    
+                    # Add scheduled job
+                    schedule_type = self.config_manager.get('schedule_type', 'daily')
+                    hour = self.config_manager.get('schedule_hour', 0)
+                    minute = self.config_manager.get('schedule_minute', 0)
+                    day = self.config_manager.get('schedule_day', 0)
+                    
+                    try:
+                        self.scheduler.add_job(
+                            schedule_folder,
+                            schedule_type,
+                            hour=hour,
+                            minute=minute,
+                            day=day
+                        )
+                        logging.info(f"Added {schedule_type} schedule for: {schedule_folder}")
+                    except Exception as e:
+                        logging.error(f"Error adding scheduled job: {e}")
+            
+            # AI settings
+            if self.config_manager.get('ai_enabled', False):
+                model_path = self.config_manager.get('model_path', '')
+                if model_path and Path(model_path).exists():
+                    try:
+                        from core.ai_categorizer import AIFileClassifier
+                        self.ai_classifier = AIFileClassifier(model_path)
+                        logging.info(f"Loaded AI classifier from: {model_path}")
+                    except Exception as e:
+                        logging.error(f"Error loading AI classifier: {e}")
+            
+            logging.info("Finished applying saved settings")
+            
+        except Exception as e:
+            logging.error(f"Error applying saved settings: {e}")
     
     def closeEvent(self, event):
         """Handle window close event"""
@@ -945,7 +1021,7 @@ class MainWindow(QMainWindow):
             try:
                 # Use HistoryManager methods to clear data
                 success1 = self.history_manager.clear_operations()
-                success2 = self.history_manager.clear_history()
+                success2 = self.history_manager.clear_all_history()
                 
                 if success1 and success2:
                     self.history_list.clear()
