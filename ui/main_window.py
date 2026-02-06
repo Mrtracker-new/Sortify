@@ -240,90 +240,28 @@ class MainWindow(QMainWindow):
         self.image_analyzer = None
         self.command_parser = None
         
-        # detailed organization categories
-        self.categories = {
-            'Images': {
-                'jpg': ['.jpg', '.jpeg', '.jfif'],
-                'png': ['.png'],
-                'gif': ['.gif'],
-                'bmp': ['.bmp'],
-                'webp': ['.webp'],
-                'heic': ['.heic', '.heif'],
-                'tiff': ['.tiff', '.tif'],
-                'vector': ['.svg', '.ai', '.eps'],
-                'raw': ['.raw', '.cr2', '.nef', '.arw', '.dng'],
-                'whatsapp': [],  # WhatsApp images detected by filename pattern
-                'telegram': [],  # Telegram images detected by filename pattern
-                'instagram': [],  # Instagram images detected by filename pattern
-                'facebook': [],  # Facebook images detected by filename pattern
-                'ai': []  # AI-generated images detected by filename pattern
-            },
-            'AI Images': {
-                'chatgpt': [],  # ChatGPT/DALL-E images detected by filename pattern
-                'midjourney': [],  # Midjourney images detected by filename pattern
-                'stable_diffusion': [],  # Stable Diffusion images detected by filename pattern
-                'bing': [],  # Bing AI images detected by filename pattern
-                'bard': [],  # Google Bard images detected by filename pattern
-                'claude': [],  # Claude/Anthropic images detected by filename pattern
-                'other_ai': []  # Other AI-generated images detected by filename pattern
-            },
-            'Documents': {
-                'PDF': ['.pdf'],
-                'Word': ['.doc', '.docx', '.docm', '.dot', '.dotx', '.rtf'],
-                'Text': ['.txt', '.md', '.log', '.tex'],
-                'Spreadsheets': ['.xlsx', '.xls', '.csv', '.xlsm', '.ods'],
-                'Presentations': ['.ppt', '.pptx', '.pps', '.ppsx', '.odp'],
-                'eBooks': ['.epub', '.mobi', '.azw', '.azw3']
-            },
-            'Audio': {
-                'Music': ['.mp3', '.m4a', '.aac', '.ogg'],
-                'Lossless': ['.flac', '.wav', '.alac', '.aiff'],
-                'Playlists': ['.m3u', '.pls', '.wpl'],
-                'Voice': ['.opus', '.wma', '.voc']
-            },
-            'Video': {
-                'Movies': ['.mp4', '.mov', '.m4v'],
-                'TV': ['.mkv', '.avi', '.mpg', '.mpeg'],
-                'Mobile': ['.3gp', '.3g2'],
-                'Web': ['.webm', '.flv'],
-                'WhatsApp': [],  # WhatsApp videos detected by filename pattern
-                'Telegram': [],  # Telegram videos detected by filename pattern
-                'Instagram': [],  # Instagram videos detected by filename pattern
-                'Facebook': [],  # Facebook videos detected by filename pattern
-                'YouTube': []  # YouTube videos detected by filename pattern
-            },
-            'Archives': {
-                'ZIP': ['.zip', '.7z'],
-                'RAR': ['.rar'],
-                'Disk': ['.iso', '.dmg'],
-                'Compressed': ['.gz', '.bz2', '.xz', '.tar', '.tgz']
-            },
-            'Code': {
-                'Python': ['.py', '.pyw', '.ipynb'],
-                'Web': ['.html', '.css', '.js', '.php', '.jsx', '.tsx'],
-                'Java': ['.java', '.jar', '.class'],
-                'C_CPP': ['.c', '.cpp', '.h', '.hpp'],
-                'Scripts': ['.sh', '.bash', '.ps1', '.bat', '.cmd'],
-                'Data': ['.json', '.xml', '.yaml', '.yml', '.csv']
-            },
-            'Applications': {
-                'Windows': ['.exe', '.msi', '.dll'],
-                'Mac': ['.app', '.dmg', '.pkg'],
-                'Linux': ['.deb', '.rpm', '.AppImage'],
-                'Mobile': ['.apk', '.ipa']
-            },
-            'Design': {
-                'Vector': ['.svg', '.eps', '.ai'],
-                'CAD': ['.dwg', '.dxf', '.stl'],
-                '3D': ['.obj', '.fbx', '.blend', '.3ds'],
-                'Fonts': ['.ttf', '.otf', '.woff', '.woff2']
-            }
-        }
+        # Load categories from config_manager
+        categories_dict = self.config_manager.get_categories()
         
+        # Build flat categories for UI dropdowns
+        # Convert new format {main: {sub: {extensions: [...], patterns: [...]}}} to flat format
+        self.categories = {}
         self.flat_categories = {}
-        for main_cat, subcats in self.categories.items():
-            for subcat, extensions in subcats.items():
+        
+        for main_cat, subcats in categories_dict.items():
+            self.categories[main_cat] = {}
+            for subcat, details in subcats.items():
                 cat_name = f"{main_cat}/{subcat}"
+                # Extract extensions from the new format
+                if isinstance(details, dict) and 'extensions' in details:
+                    extensions = details['extensions']
+                elif isinstance(details, list):
+                    # Backward compatibility with old format
+                    extensions = details
+                else:
+                    extensions = []
+                
+                self.categories[main_cat][subcat] = extensions
                 self.flat_categories[cat_name] = extensions
         
         # UI
@@ -516,7 +454,8 @@ class MainWindow(QMainWindow):
         """
         try:
             if self.file_ops is None:
-                self.file_ops = FileOperations(base_path, folder_name)
+                # Pass config_manager to FileOperations
+                self.file_ops = FileOperations(base_path, folder_name, config_manager=self.config_manager)
                 
                 # Initialize scheduler now that file_ops exists
                 if self.scheduler is None:
