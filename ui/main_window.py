@@ -1216,47 +1216,87 @@ class MainWindow(QMainWindow):
         if not command:
             self.show_message("Warning", "Please enter a command", QMessageBox.Icon.Warning)
             return
-            
+        
+        # Check if command parser is available
         if not self.command_parser:
-            self.show_message("Error", "Command parser not initialized")
+            self.command_output.addItem("⚠️ Command parser not available")
+            self.command_output.addItem("   The AI models may still be loading. Please wait a moment and try again.")
+            self.status_bar.showMessage("Command parser not initialized")
             return
-            
+        
         try:
+            # Show processing indicator
+            self.command_output.addItem(f"⏳ Processing: {command}")
+            self.status_bar.showMessage("Parsing command...")
+            
             # Parse command
             parsed_command = self.command_parser.parse_command(command)
             
-            if parsed_command.get('action') != 'unknown':
-                # Execute command
-                if self.file_ops is None:
-                    # Need to initialize file operations
-                    dest_dir = QFileDialog.getExistingDirectory(
-                        self,
-                        "Select Destination Directory for Sorted Files",
-                        ""
-                    )
-                    if not dest_dir:
-                        return
-                        
-                    # Use _ensure_file_ops to properly initialize file_ops and scheduler
-                    if not self._ensure_file_ops(dest_dir, "Organized Files"):
-                        return
-                    
-                success, message = self.command_parser.execute_command(parsed_command, self.file_ops)
-                
-                if success:
-                    self.command_output.addItem(f"✅ {message}")
-                    self.status_bar.showMessage("Command executed successfully")
-                else:
-                    self.command_output.addItem(f"❌ {message}")
-                    self.status_bar.showMessage("Error executing command")
-            else:
-                self.command_output.addItem(f"❌ {parsed_command.get('error', 'Unknown error')}")
+            # Check if command was understood
+            if parsed_command.get('action') == 'unknown':
+                error_msg = parsed_command.get('error', 'Could not understand command')
+                self.command_output.addItem(f"❌ {error_msg}")
+                self.command_output.addItem("   Try rephrasing or use one of the example commands below.")
                 self.status_bar.showMessage("Could not parse command")
+                return
+            
+            # Display parsed command details
+            action = parsed_command.get('action', 'unknown')
+            self.command_output.addItem(f"📝 Parsed as: {action} command")
+            
+            # Ensure file operations is initialized
+            if self.file_ops is None:
+                self.command_output.addItem("🗂️ No base directory set. Please select one...")
                 
+                # Get last directory from config
+                last_dir = ''
+                if hasattr(self, 'config_manager') and self.config_manager:
+                    last_dir = self.config_manager.get_last_directory('destination')
+                
+                dest_dir = QFileDialog.getExistingDirectory(
+                    self,
+                    "Select Base Directory for File Operations",
+                    last_dir
+                )
+                
+                if not dest_dir:
+                    self.command_output.addItem("❌ Operation cancelled - no directory selected")
+                    return
+                
+                # Save directory to config
+                if hasattr(self, 'config_manager') and self.config_manager:
+                    self.config_manager.set_last_directory('destination', dest_dir)
+                
+                # Use _ensure_file_ops to properly initialize file_ops and scheduler
+                if not self._ensure_file_ops(dest_dir, "Organized Files"):
+                    self.command_output.addItem("❌ Failed to initialize file operations")
+                    return
+                
+                self.command_output.addItem(f"✅ Base directory: {dest_dir}")
+            
+            # Execute command
+            self.status_bar.showMessage("Executing command...")
+            success, message = self.command_parser.execute_command(parsed_command, self.file_ops)
+            
+            if success:
+                self.command_output.addItem(f"✅ {message}")
+                self.status_bar.showMessage("Command executed successfully")
+                
+                # Clear input on success
+                self.command_input.clear()
+                
+                # Refresh history
+                self.refresh_history()
+            else:
+                self.command_output.addItem(f"❌ {message}")
+                self.status_bar.showMessage("Command execution failed")
+        
         except Exception as e:
             self.command_output.addItem(f"❌ Error: {str(e)}")
+            self.command_output.addItem(f"   Please try again or report this issue.")
             self.status_bar.showMessage("Error executing command")
-            logging.error(f"Error executing command: {e}")
+            logging.error(f"Error executing command '{command}': {e}", exc_info=True)
+
 
     def use_example_command(self, item):
         """Use an example command"""
