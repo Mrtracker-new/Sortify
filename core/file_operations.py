@@ -158,7 +158,7 @@ class FileOperations:
         # If we've exhausted all attempts without returning
         return None, None
 
-    def __init__(self, base_path=None, folder_name=None, safety_config=None, dry_run=False, skip_confirmations=False, allowed_dirs=None):
+    def __init__(self, base_path=None, folder_name=None, safety_config=None, dry_run=False, skip_confirmations=False, allowed_dirs=None, config_manager=None):
         """
         Initialize FileOperations with customizable base path and folder name
         
@@ -169,6 +169,7 @@ class FileOperations:
             dry_run (bool): If True, only preview operations without executing them
             skip_confirmations (bool): If True, skip all confirmation dialogs
             allowed_dirs (list, optional): List of additional allowed directories for file operations
+            config_manager (ConfigManager, optional): Configuration manager for loading categories
             
         Raises:
             ValueError: If base_path or folder_name are None in non-dry-run mode
@@ -220,20 +221,16 @@ class FileOperations:
                     "appropriate permissions or choose a different location."
                 )
 
-        
-        self.categories = {
-            'documents': ['word', 'pdf', 'text', 'ebooks'],
-            'images': ['photos', 'screenshots', 'artwork', 'jpg', 'png', 'gif', 'bmp', 'webp', 'heic', 'tiff', 'vector', 'raw', 'whatsapp', 'telegram', 'instagram', 'facebook', 'ai'],
-            'ai_images': ['chatgpt', 'midjourney', 'stable_diffusion', 'bing', 'bard', 'claude', 'other_ai'],
-            'videos': ['movies', 'recordings', 'tutorials'],
-            'audio': ['music', 'podcasts', 'recordings'],
-            'code': ['python', 'javascript', 'web', 'data'],
-            'archives': ['compressed', 'backups', 'installers'],
-            'office': ['templates', 'spreadsheets', 'presentations'],
-            'downloads': ['software', 'media', 'temporary'],
-            'personal': ['documents', 'finance', 'records'],
-            'misc': ['other']
-        }
+
+        # Load categories from config_manager or use simple defaults for backward compatibility
+        if config_manager:
+            self.config_manager = config_manager
+            self.categories = config_manager.get_categories()
+        else:
+            # Backward compatibility: simple default structure
+            from .config_manager import ConfigManager
+            self.config_manager = ConfigManager()
+            self.categories = self.config_manager.get_categories()
 
     def _initialize_allowed_directories(self, additional_dirs=None):
         """
