@@ -81,6 +81,11 @@ def initialize_database():
         )
         """)
         
+        # Create index on timestamp for faster queries
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC)
+        """)
+        
         # Commit changes and close connection
         conn.commit()
         conn.close()
@@ -227,6 +232,11 @@ def create_database_in_user_dir(user_data_dir):
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                     status TEXT DEFAULT 'success'
                 )
+                """)
+                
+                # Create index on timestamp for faster queries
+                cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC)
                 """)
                 
                 # Commit changes and close connection
