@@ -5,6 +5,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import QMessageBox, QInputDialog, QFileDialog
 from .history import HistoryManager
 from .safety_manager import SafetyManager
+from .duplicate_finder import DuplicateFinder
 
 class FileOperations:
     def setup_organization(self, parent=None, max_attempts=3):
@@ -410,10 +411,53 @@ class FileOperations:
             shutil.copy2(str(source_path), str(dest_path))
             self.history.log_operation(str(source_path), str(dest_path), operation_type="copy")
             return dest_path
-        except Exception as e:
+        except PermissionError as e:
+            error_msg = (
+                f"Permission denied when copying '{source_path.name}' to '{dest_dir}'.\n\n"
+                f"Try running the application as administrator or choose a different destination."
+            )
             if not self.dry_run:
-                self.history.log_operation(str(source_path), "failed", operation_type="copy", metadata={'error': str(e)})
-            raise
+                self.history.log_operation(str(source_path), "failed", operation_type="copy", metadata={'error': error_msg})
+            raise PermissionError(error_msg) from e
+        except OSError as e:
+            # Handle specific OS errors with helpful messages
+            if "disk full" in str(e).lower() or "no space" in str(e).lower():
+                error_msg = (
+                    f"Not enough disk space to copy '{source_path.name}'.\n\n"
+                    f"Free up some space or choose a different destination."
+                )
+            elif "file name too long" in str(e).lower():
+                error_msg = (
+                    f"File name too long when copying '{source_path.name}'.\n\n"
+                    f"Try shortening the file name or choosing a different destination path."
+                )
+            elif "read-only" in str(e).lower():
+                error_msg = (
+                    f"Cannot copy to read-only location '{dest_dir}'.\n\n"
+                    f"Choose a different destination or remove write protection."
+                )
+            else:
+                error_msg = f"OS error copying '{source_path.name}' to '{dest_dir}': {e}"
+            if not self.dry_run:
+                self.history.log_operation(str(source_path), "failed", operation_type="copy", metadata={'error': error_msg})
+            raise OSError(error_msg) from e
+        except FileNotFoundError as e:
+            error_msg = (
+                f"Source file not found: '{source_path}'.\n\n"
+                f"The file may have been moved or deleted."
+            )
+            if not self.dry_run:
+                self.history.log_operation(str(source_path), "failed", operation_type="copy", metadata={'error': error_msg})
+            raise FileNotFoundError(error_msg) from e
+        except Exception as e:
+            # Catch-all for unexpected errors
+            error_msg = (
+                f"Unexpected error copying '{source_path.name}': {type(e).__name__}: {e}\n\n"
+                f"Please check file permissions and try again."
+            )
+            if not self.dry_run:
+                self.history.log_operation(str(source_path), "failed", operation_type="copy", metadata={'error': error_msg})
+            raise RuntimeError(error_msg) from e
 
     def move_file(self, source_path, category_path, parent=None, skip_confirmation=False):
         """Move file to appropriate category folder with optional safety confirmation
@@ -499,10 +543,61 @@ class FileOperations:
             shutil.move(str(source_path), str(dest_path))
             self.history.log_operation(str(source_path), str(dest_path), operation_type="move")
             return dest_path
-        except Exception as e:
+        except PermissionError as e:
+            error_msg = (
+                f"Permission denied when moving '{source_path.name}' to '{dest_dir}'.\n\n"
+                f"Possible causes:\n"
+                f"• The file is in use by another program\n"
+                f"• You don't have permission to modify the source or destination\n\n"
+                f"Try closing programs using this file or running as administrator."
+            )
             if not self.dry_run:
-                self.history.log_operation(str(source_path), "failed", operation_type="move", metadata={'error': str(e)})
-            raise
+                self.history.log_operation(str(source_path), "failed", operation_type="move", metadata={'error': error_msg})
+            raise PermissionError(error_msg) from e
+        except OSError as e:
+            # Handle specific OS errors with helpful messages
+            if "disk full" in str(e).lower() or "no space" in str(e).lower():
+                error_msg = (
+                    f"Not enough disk space to move '{source_path.name}'.\n\n"
+                    f"Free up some space on the destination drive."
+                )
+            elif "file name too long" in str(e).lower():
+                error_msg = (
+                    f"File name too long when moving '{source_path.name}'.\n\n"
+                    f"Try shortening the file name or choosing a different destination path."
+                )
+            elif "cross-device" in str(e).lower() or "different" in str(e).lower():
+                error_msg = (
+                    f"Cannot move '{source_path.name}' across different drives using move operation.\n\n"
+                    f"This is a system limitation. The file will be copied instead."
+                )
+                # Fallback to copy operation for cross-device moves
+                try:
+                    return self.copy_file(source_path, category_path)
+                except Exception as copy_err:
+                    error_msg = f"Failed to copy '{source_path.name}' as fallback: {copy_err}"
+            else:
+                error_msg = f"OS error moving '{source_path.name}' to '{dest_dir}': {e}"
+            if not self.dry_run:
+                self.history.log_operation(str(source_path), "failed", operation_type="move", metadata={'error': error_msg})
+            raise OSError(error_msg) from e
+        except FileNotFoundError as e:
+            error_msg = (
+                f"Source file not found: '{source_path}'.\n\n"
+                f"The file may have been moved or deleted by another program."
+            )
+            if not self.dry_run:
+                self.history.log_operation(str(source_path), "failed", operation_type="move", metadata={'error': error_msg})
+            raise FileNotFoundError(error_msg) from e
+        except Exception as e:
+            # Catch-all for unexpected errors
+            error_msg = (
+                f"Unexpected error moving '{source_path.name}': {type(e).__name__}: {e}\n\n"
+                f"The file may be locked or in use by another program."
+            )
+            if not self.dry_run:
+                self.history.log_operation(str(source_path), "failed", operation_type="move", metadata={'error': error_msg})
+            raise RuntimeError(error_msg) from e
 
     def rename_file(self, file_path, new_name=None, options=None):
         """
@@ -618,15 +713,65 @@ class FileOperations:
 
             return new_path
 
-        except Exception as e:
-            error_msg = f"Error renaming file: {str(e)}"
+        except PermissionError as e:
+            error_msg = (
+                f"Permission denied when renaming '{file_path.name}'.\n\n"
+                f"The file may be:\n"
+                f"• Open in another program\n"
+                f"• Located in a protected directory\n\n"
+                f"Close any programs using this file and try again."
+            )
             self.history.log_operation(
                 str(file_path),
                 "failed",
                 operation_type="rename",
                 metadata={'error': error_msg}
             )
-            raise RuntimeError(error_msg)
+            raise PermissionError(error_msg) from e
+        except FileExistsError as e:
+            error_msg = (
+                f"Cannot rename '{file_path.name}' to '{new_path.name}' - target file already exists.\n\n"
+                f"Choose a different name or enable sequence numbering."
+            )
+            self.history.log_operation(
+                str(file_path),
+                "failed",
+                operation_type="rename",
+                metadata={'error': error_msg}
+            )
+            raise FileExistsError(error_msg) from e
+        except OSError as e:
+            if "file name too long" in str(e).lower():
+                error_msg = (
+                    f"New file name is too long: '{new_path.name}'.\n\n"
+                    f"Try using a shorter name or fewer prefixes/suffixes."
+                )
+            elif "invalid" in str(e).lower():
+                error_msg = (
+                    f"Invalid characters in new file name: '{new_path.name}'.\n\n"
+                    f"Remove special characters like: \\ / : * ? \" < > |"
+                )
+            else:
+                error_msg = f"OS error renaming '{file_path.name}': {e}"
+            self.history.log_operation(
+                str(file_path),
+                "failed",
+                operation_type="rename",
+                metadata={'error': error_msg}
+            )
+            raise OSError(error_msg) from e
+        except Exception as e:
+            error_msg = (
+                f"Unexpected error renaming '{file_path.name}': {type(e).__name__}: {e}\n\n"
+                f"Check that the file exists and is not in use."
+            )
+            self.history.log_operation(
+                str(file_path),
+                "failed",
+                operation_type="rename",
+                metadata={'error': error_msg}
+            )
+            raise RuntimeError(error_msg) from e
 
     def batch_rename(self, file_paths, pattern=None, options=None):
         """
@@ -664,15 +809,29 @@ class FileOperations:
                 
             return results
             
-        except Exception as e:
-            error_msg = f"Error in batch rename: {str(e)}"
+        except (PermissionError, FileExistsError, OSError) as e:
+            # These exceptions already have detailed messages from rename_file
+            error_msg = f"Batch rename failed: {e}"
             self.history.log_operation(
                 "batch_rename",
                 "failed",
                 operation_type="batch_rename",
                 metadata={'error': error_msg, 'files': file_paths}
             )
-            raise RuntimeError(error_msg)
+            raise
+        except Exception as e:
+            error_msg = (
+                f"Unexpected error during batch rename: {type(e).__name__}: {e}\n\n"
+                f"Files attempted: {len(file_paths)}\n"
+                f"Some files may have been renamed successfully before the error occurred."
+            )
+            self.history.log_operation(
+                "batch_rename",
+                "failed",
+                operation_type="batch_rename",
+                metadata={'error': error_msg, 'files': file_paths}
+            )
+            raise RuntimeError(error_msg) from e
 
     def categorize_file(self, file_path):
         """
@@ -934,9 +1093,21 @@ class FileOperations:
                     else:
                         # Binary file disguised as text extension
                         category_path = 'misc/other'
+                except PermissionError as e:
+                    # User doesn't have permission to read the file
+                    print(f"Warning: Permission denied reading '{file_path.name}' for analysis. Categorizing as misc.")
+                    category_path = 'misc/other'
+                except OSError as e:
+                    # I/O error, possibly corrupted file or disk issue
+                    print(f"Warning: I/O error reading '{file_path.name}': {e}. Categorizing as misc.")
+                    category_path = 'misc/other'
+                except UnicodeDecodeError as e:
+                    # File not actually text despite extension
+                    print(f"Warning: Unable to decode '{file_path.name}' as text. Categorizing as misc.")
+                    category_path = 'misc/other'
                 except Exception as e:
-                    # If we can't read the file, use misc category
-                    print(f"Warning: Could not analyze file {file_path.name}: {str(e)}")
+                    # Unexpected error during content analysis
+                    print(f"Warning: Unexpected error analyzing '{file_path.name}': {type(e).__name__}: {e}. Categorizing as misc.")
                     category_path = 'misc/other'
             else:
                 # Use filename patterns as a last resort
