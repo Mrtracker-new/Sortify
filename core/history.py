@@ -227,6 +227,24 @@ class HistoryManager:
                 logger.info("Database migration completed successfully")
             else:
                 logger.info("Database already has session support")
+            
+            # Create index on timestamp for faster queries (idempotent with IF NOT EXISTS)
+            logger.info("Creating timestamp index if it doesn't exist")
+            self.db_manager.execute_query(
+                "CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC)",
+                fetch_mode='none'
+            )
+            logger.info("Timestamp index ensured")
+            
+            # Auto-cleanup old history entries (older than 90 days)
+            logger.info("Running automatic cleanup of old history entries")
+            try:
+                self.clear_old_history(days_old=90)
+                logger.info("Automatic cleanup completed")
+            except Exception as cleanup_error:
+                # Don't fail migration if cleanup fails - just log it
+                logger.warning(f"Automatic cleanup failed (non-fatal): {cleanup_error}")
+            
         except sqlite3.Error as e:
             logger.error(f"Database migration failed: {e}")
             # Don't raise - old operations can still work without sessions
@@ -540,7 +558,7 @@ class HistoryManager:
             logging.error(f"Error clearing operations: {str(e)}")
             return False
 
-    def clear_history(self):
+    def clear_all_history(self):
         """Clear all history entries from the database"""
         try:
             self.db_manager.execute_query("DELETE FROM history", fetch_mode='none')
@@ -703,8 +721,8 @@ class HistoryManager:
         )
         return results if results else []
 
-    def clear_history(self, days_old=30):
-        """Clear old history entries"""
+    def clear_old_history(self, days_old=90):
+        """Clear history entries older than specified days (default: 90 days)"""
         try:
             self.db_manager.execute_query(
                 """
@@ -717,8 +735,8 @@ class HistoryManager:
             logging.info(f"Cleared history entries older than {days_old} days")
             return True
         except sqlite3.Error as e:
-            logging.error(f"Database error during clear_history: {str(e)}")
+            logging.error(f"Database error during clear_old_history: {str(e)}")
             return False
         except Exception as e:
-            logging.error(f"Error clearing history: {str(e)}")
+            logging.error(f"Error clearing old history: {str(e)}")
             return False
