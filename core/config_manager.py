@@ -21,9 +21,17 @@ class ConfigManager:
             'last_watch_directory': '',
             'last_schedule_directory': '',
             'last_destination_directory': '',
+            'last_file_directory': '',
+            'last_model_directory': '',
             'model_path': '',
             'auto_sort_enabled': False,
+            'watch_folder': '',
             'schedule_enabled': False,
+            'schedule_folder': '',
+            'schedule_type': 'daily',
+            'schedule_hour': 0,
+            'schedule_minute': 0,
+            'schedule_day': 0,
             'ai_enabled': False,
             'commands_enabled': False
         }
