@@ -248,6 +248,11 @@ def create_new_database(db_path):
         )
         """)
         
+        # Create index on timestamp for faster queries
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC)
+        """)
+        
         # Commit changes and close connection
         conn.commit()
         conn.close()
