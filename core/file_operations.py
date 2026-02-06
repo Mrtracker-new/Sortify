@@ -376,8 +376,25 @@ class FileOperations:
                 
             dest_path = dest_dir / source_path.name
 
-            # Handle filename conflicts
+            # Handle filename conflicts with content-based duplicate detection
             if dest_path.exists():
+                # Check if it's actually a duplicate by comparing file hashes
+                finder = DuplicateFinder()
+                source_hash = finder.calculate_file_hash(source_path)
+                dest_hash = finder.calculate_file_hash(dest_path)
+                
+                if source_hash and dest_hash and source_hash == dest_hash:
+                    # True duplicate - skip copy operation silently
+                    if not self.dry_run:
+                        self.history.log_operation(
+                            str(source_path), 
+                            str(dest_path), 
+                            operation_type="skip_duplicate_copy",
+                            metadata={'reason': 'identical_content'}
+                        )
+                    return dest_path  # Return existing path
+                
+                # Different files with same name, rename with counter
                 counter = 1
                 while dest_path.exists():
                     dest_path = dest_dir / f"{dest_path.stem}_{counter}{dest_path.suffix}"
@@ -424,8 +441,39 @@ class FileOperations:
                 
             dest_path = dest_dir / source_path.name
 
-            # Handle filename conflicts
+            # Handle filename conflicts with content-based duplicate detection
             if dest_path.exists():
+                # Check if it's actually a duplicate by comparing file hashes
+                finder = DuplicateFinder()
+                source_hash = finder.calculate_file_hash(source_path)
+                dest_hash = finder.calculate_file_hash(dest_path)
+                
+                if source_hash and dest_hash and source_hash == dest_hash:
+                    # True duplicate - ask user if they want to skip
+                    if not parent:
+                        # No parent widget, skip silently in batch operations
+                        return None
+                    
+                    response = QMessageBox.question(
+                        parent,
+                        "Duplicate File",
+                        f"File '{dest_path.name}' already exists and is identical.\n\nSkip this file?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.Yes
+                    )
+                    
+                    if response == QMessageBox.StandardButton.Yes:
+                        # Log as skipped
+                        if not self.dry_run:
+                            self.history.log_operation(
+                                str(source_path), 
+                                str(dest_path), 
+                                operation_type="skip_duplicate",
+                                metadata={'reason': 'identical_content'}
+                            )
+                        return None  # Skip the file
+                
+                # Different files with same name, rename with counter
                 counter = 1
                 while dest_path.exists():
                     dest_path = dest_dir / f"{dest_path.stem}_{counter}{dest_path.suffix}"
