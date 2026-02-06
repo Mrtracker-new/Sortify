@@ -28,6 +28,7 @@ class SettingsWindow(QWidget):
         self.command_parser = None
         
         self.setup_ui()
+        self.load_settings()
         
     def setup_ui(self):
         """Set up the settings UI"""
@@ -402,10 +403,81 @@ class SettingsWindow(QWidget):
                 # Save the directory, not the file path
                 model_dir = str(Path(file_path).parent)
                 self.config_manager.set_last_directory('model', model_dir)
+    
+    def load_settings(self):
+        """Load settings from config and populate UI"""
+        if not self.config_manager:
+            return
+        
+        try:
+            # Auto-sort tab
+            self.auto_sort_enabled.setChecked(self.config_manager.get('auto_sort_enabled', False))
+            watch_folder = self.config_manager.get('watch_folder', '')
+            if watch_folder:
+                self.watch_folder_path.setText(watch_folder)
+            
+            # Schedule tab
+            self.schedule_enabled.setChecked(self.config_manager.get('schedule_enabled', False))
+            schedule_folder = self.config_manager.get('schedule_folder', '')
+            if schedule_folder:
+                self.schedule_folder_path.setText(schedule_folder)
+            
+            # Schedule parameters
+            schedule_type = self.config_manager.get('schedule_type', 'daily')
+            index = self.schedule_type.findText(schedule_type.capitalize())
+            if index >= 0:
+                self.schedule_type.setCurrentIndex(index)
+            
+            hour = self.config_manager.get('schedule_hour', 0)
+            minute = self.config_manager.get('schedule_minute', 0)
+            self.schedule_time.setTime(QTime(hour, minute))
+            
+            day = self.config_manager.get('schedule_day', 0)
+            if 0 <= day < 7:
+                self.schedule_day.setCurrentIndex(day)
+            
+            # AI tab
+            self.ai_enabled.setChecked(self.config_manager.get('ai_enabled', False))
+            model_path = self.config_manager.get('model_path', '')
+            if model_path:
+                self.model_path.setText(model_path)
+            
+            # Commands tab
+            self.commands_enabled.setChecked(self.config_manager.get('commands_enabled', False))
+            
+            logging.info("Loaded settings from config")
+        except Exception as e:
+            logging.error(f"Error loading settings: {e}")
             
     def save_settings(self):
-        """Save all settings"""
+        """Save all settings to config and apply them"""
         try:
+            # Save to ConfigManager
+            if self.config_manager:
+                # Auto-sort settings
+                self.config_manager.set('auto_sort_enabled', self.auto_sort_enabled.isChecked())
+                self.config_manager.set('watch_folder', self.watch_folder_path.text())
+                
+                # Schedule settings
+                self.config_manager.set('schedule_enabled', self.schedule_enabled.isChecked())
+                self.config_manager.set('schedule_folder', self.schedule_folder_path.text())
+                self.config_manager.set('schedule_type', self.schedule_type.currentText().lower())
+                
+                time = self.schedule_time.time()
+                self.config_manager.set('schedule_hour', time.hour())
+                self.config_manager.set('schedule_minute', time.minute())
+                self.config_manager.set('schedule_day', self.schedule_day.currentIndex())
+                
+                # AI settings
+                self.config_manager.set('ai_enabled', self.ai_enabled.isChecked())
+                self.config_manager.set('model_path', self.model_path.text())
+                
+                # Commands settings
+                self.config_manager.set('commands_enabled', self.commands_enabled.isChecked())
+                
+                logging.info("Saved settings to config file")
+            
+            # Apply runtime changes (start/stop services)
             # Auto-sort tab settings
             if self.auto_sort_enabled.isChecked():
                 watch_folder = self.watch_folder_path.text()
@@ -440,7 +512,7 @@ class SettingsWindow(QWidget):
                         self.scheduler.start()
                     
                     # Configure schedule
-                    schedule_type = self.schedule_type.currentText().lower()  # Get from combo box
+                    schedule_type = self.schedule_type.currentText().lower()
                     
                     # Get time settings
                     time = self.schedule_time.time()
@@ -453,7 +525,6 @@ class SettingsWindow(QWidget):
                         days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
                         day = days.index(day_name)
                     elif schedule_type == 'monthly':
-                        # For monthly, we need a day of month (1-31)
                         day = 1  # Default to first day of month
                     
                     # Add the job
