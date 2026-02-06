@@ -56,9 +56,9 @@ class SortScheduler:
             logging.error(f"Cannot schedule job for non-existent directory: {folder_path}")
             return False
             
-        # Remove any existing job with this name
+        # Validate that job name doesn't already exist
         if name in self.jobs:
-            self.remove_job(name)
+            raise ValueError(f"Job '{name}' already exists. Choose a different name or remove the existing job first.")
             
         # Configure the trigger based on type
         if trigger_type == 'interval' and interval_minutes is not None:
@@ -124,9 +124,9 @@ class SortScheduler:
             logging.error(f"Cannot schedule job for non-existent directory: {folder_path}")
             return False
             
-        # Remove any existing job with this name
+        # Validate that job name doesn't already exist
         if name in self.jobs:
-            self.remove_job(name)
+            raise ValueError(f"Job '{name}' already exists. Choose a different name or remove the existing job first.")
         
         if run_date is None:
             # Run immediately in a separate thread
