@@ -364,71 +364,108 @@ class CommandParser:
         destination = command.get('destination')
         if not destination:
             return False, "No destination specified"
-            
-        # Create destination path
-        dest_path = Path(file_ops.base_dir) / destination
-        dest_path.mkdir(exist_ok=True, parents=True)
         
         # Get files to move based on file types and time constraints
         files = self._get_files_matching_criteria(command, file_ops.base_dir)
         
         if not files:
             return False, "No matching files found"
-            
-        # Move files
+        
+        # Start batch operations
+        file_ops.start_operations()
+        
+        # Move files using FileOperations API with category_path
         moved_count = 0
+        failed_count = 0
         for file in files:
             try:
-                file_ops.move_file(file, str(dest_path))
-                moved_count += 1
+                # Use destination as category_path (will be created relative to base_dir)
+                result = file_ops.move_file(file, destination, skip_confirmation=True)
+                if result:
+                    moved_count += 1
+                else:
+                    failed_count += 1
             except Exception as e:
                 logging.error(f"Error moving file {file}: {e}")
-                
-        return True, f"Moved {moved_count} files to {destination}"
+                failed_count += 1
+        
+        # Finalize operations
+        file_ops.finalize_operations()
+        
+        if moved_count > 0:
+            msg = f"Moved {moved_count} file(s) to {destination}"
+            if failed_count > 0:
+                msg += f" ({failed_count} failed)"
+            return True, msg
+        else:
+            return False, f"Failed to move files. {failed_count} errors occurred."
     
     def _execute_copy_command(self, command, file_ops):
         """Execute a copy command"""
-        # Similar to move but copy instead
+        # Get destination folder
         destination = command.get('destination')
         if not destination:
             return False, "No destination specified"
-            
-        dest_path = Path(file_ops.base_dir) / destination
-        dest_path.mkdir(exist_ok=True, parents=True)
         
+        # Get files to copy based on file types and time constraints
         files = self._get_files_matching_criteria(command, file_ops.base_dir)
         
         if not files:
             return False, "No matching files found"
-            
+        
+        # Start batch operations
+        file_ops.start_operations()
+        
+        # Copy files using FileOperations API with category_path
         copied_count = 0
+        failed_count = 0
         for file in files:
             try:
-                file_ops.copy_file(file, str(dest_path))
-                copied_count += 1
+                # Use destination as category_path (will be created relative to base_dir)
+                result = file_ops.copy_file(file, destination)
+                if result:
+                    copied_count += 1
+                else:
+                    failed_count += 1
             except Exception as e:
                 logging.error(f"Error copying file {file}: {e}")
-                
-        return True, f"Copied {copied_count} files to {destination}"
+                failed_count += 1
+        
+        # Finalize operations
+        file_ops.finalize_operations()
+        
+        if copied_count > 0:
+            msg = f"Copied {copied_count} file(s) to {destination}"
+            if failed_count > 0:
+                msg += f" ({failed_count} failed)"
+            return True, msg
+        else:
+            return False, f"Failed to copy files. {failed_count} errors occurred."
     
     def _execute_organize_command(self, command, file_ops):
         """Execute an organize command"""
         source = command.get('source')
         method = command.get('method', 'type')
         
-        if not source:
-            return False, "No source folder specified"
-            
-        source_path = Path(file_ops.base_dir) / source
-        if not source_path.exists() or not source_path.is_dir():
-            return False, f"Source folder '{source}' not found"
-            
-        files = [f for f in source_path.glob('**/*') if f.is_file()]
+        # If no source specified, use the entire base_dir
+        if source:
+            source_path = Path(file_ops.base_dir) / source
+            if not source_path.exists() or not source_path.is_dir():
+                return False, f"Source folder '{source}' not found"
+        else:
+            source_path = Path(file_ops.base_dir)
+        
+        # Get all files in source path
+        files = [f for f in source_path.glob('*') if f.is_file()]
         
         if not files:
             return False, "No files found in source folder"
-            
+        
+        # Start batch operations
+        file_ops.start_operations()
+        
         organized_count = 0
+        failed_count = 0
         for file in files:
             try:
                 if method == 'type':
@@ -450,13 +487,27 @@ class CommandParser:
                         category = "By Size/Very Large (> 10MB)"
                 else:
                     category = "Unsorted"
-                    
-                file_ops.move_file(file, category)
-                organized_count += 1
+                
+                result = file_ops.move_file(file, category, skip_confirmation=True)
+                if result:
+                    organized_count += 1
+                else:
+                    failed_count += 1
             except Exception as e:
                 logging.error(f"Error organizing file {file}: {e}")
-                
-        return True, f"Organized {organized_count} files from {source}"
+                failed_count += 1
+        
+        # Finalize operations
+        file_ops.finalize_operations()
+        
+        source_name = source if source else "base directory"
+        if organized_count > 0:
+            msg = f"Organized {organized_count} file(s) from {source_name}"
+            if failed_count > 0:
+                msg += f" ({failed_count} failed)"
+            return True, msg
+        else:
+            return False, f"Failed to organize files. {failed_count} errors occurred."
     
     def _execute_find_command(self, command, file_ops):
         """Execute a find command"""
@@ -536,9 +587,19 @@ class CommandParser:
     
     def _get_files_matching_criteria(self, command, base_dir):
         """Get files matching the criteria in the command"""
+        # Validate base_dir exists
+        base_path = Path(base_dir)
+        if not base_path.exists() or not base_path.is_dir():
+            logging.error(f"Base directory does not exist: {base_dir}")
+            return []
+        
         # Start with all files in the base directory
-        all_files = list(Path(base_dir).glob('**/*'))
-        matching_files = [f for f in all_files if f.is_file()]
+        try:
+            all_files = list(base_path.glob('**/*'))
+            matching_files = [f for f in all_files if f.is_file()]
+        except Exception as e:
+            logging.error(f"Error scanning directory {base_dir}: {e}")
+            return []
         
         # Filter by file types if specified
         file_types = command.get('file_types')
@@ -570,7 +631,11 @@ class CommandParser:
         # Filter by source if specified
         source = command.get('source')
         if source:
-            source_path = Path(base_dir) / source
-            matching_files = [f for f in matching_files if source_path in f.parents or f.parent == source_path]
+            source_path = base_path / source
+            if source_path.exists():
+                matching_files = [f for f in matching_files if source_path in f.parents or f.parent == source_path]
+            else:
+                logging.warning(f"Source path does not exist: {source_path}")
+                return []
         
         return matching_files
