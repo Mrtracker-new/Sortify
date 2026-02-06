@@ -862,20 +862,33 @@ class FileOperations:
             # Check if it's a text file we can analyze
             if self._is_text_file(file_path):
                 try:
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read(1000)  # Read first 1000 chars
-                        
-                        # Check for code patterns
-                        if any(pattern in content for pattern in ['def ', 'class ', 'import ', 'function', 'var ', 'const ']):
-                            category_path = 'code/other'
-                        # Check for data patterns
-                        elif any(pattern in content for pattern in ['{', '[', '<html>', '<xml>', 'SELECT ', 'CREATE TABLE']):
-                            category_path = 'code/data'
-                        # Default to text documents
-                        else:
-                            category_path = 'documents/text'
-                except:
+                    # PERFORMANCE FIX: Skip very large files (over 10MB)
+                    file_size = file_path.stat().st_size
+                    if file_size > 10 * 1024 * 1024:  # 10MB
+                        # Large file, skip content analysis
+                        category_path = 'misc/other'
+                    # SECURITY FIX: Check if file is truly text before reading
+                    elif not self._is_binary_file(file_path):
+                        # Use buffered reading to avoid loading entire file
+                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            # Read in smaller chunks with limit
+                            content = f.read(1000)  # Read first 1000 chars
+                            
+                            # Check for code patterns
+                            if any(pattern in content for pattern in ['def ', 'class ', 'import ', 'function', 'var ', 'const ']):
+                                category_path = 'code/other'
+                            # Check for data patterns
+                            elif any(pattern in content for pattern in ['{', '[', '<html>', '<xml>', 'SELECT ', 'CREATE TABLE']):
+                                category_path = 'code/data'
+                            # Default to text documents
+                            else:
+                                category_path = 'documents/text'
+                    else:
+                        # Binary file disguised as text extension
+                        category_path = 'misc/other'
+                except Exception as e:
                     # If we can't read the file, use misc category
+                    print(f"Warning: Could not analyze file {file_path.name}: {str(e)}")
                     category_path = 'misc/other'
             else:
                 # Use filename patterns as a last resort
@@ -915,5 +928,62 @@ class FileOperations:
             '.log', '.properties', '.env'
         ]
         return file_path.suffix.lower() in text_extensions
+    
+    def _is_binary_file(self, file_path, sample_size=8192):
+        """Detect if a file is binary by checking for null bytes and non-text characters
+        
+        Args:
+            file_path: Path to the file to check
+            sample_size: Number of bytes to read for detection (default: 8KB)
+            
+        Returns:
+            bool: True if file appears to be binary, False if it appears to be text
+        """
+        try:
+            # Read a sample of the file in binary mode
+            with open(file_path, 'rb') as f:
+                chunk = f.read(sample_size)
+            
+            # Empty file is considered text
+            if not chunk:
+                return False
+            
+            # Check for null bytes (strong indicator of binary)
+            if b'\x00' in chunk:
+                return True
+            
+            # Check for common binary file magic bytes
+            binary_signatures = [
+                b'\x89PNG',           # PNG
+                b'\xFF\xD8\xFF',     # JPEG
+                b'GIF87a',           # GIF87a
+                b'GIF89a',           # GIF89a
+                b'BM',               # BMP
+                b'RIFF',             # RIFF (WAV, AVI, etc.)
+                b'\x1F\x8B',         # GZIP
+                b'PK\x03\x04',       # ZIP
+                b'\x7FELF',          # ELF executable
+                b'MZ',               # Windows executable
+                b'%PDF',             # PDF (actually text-based but often binary content)
+            ]
+            
+            for signature in binary_signatures:
+                if chunk.startswith(signature):
+                    return True
+            
+            # Count non-text characters (excluding common control chars like \n, \r, \t)
+            text_chars = bytearray({7, 8, 9, 10, 12, 13, 27} | set(range(0x20, 0x7F)) | set(range(0x80, 0x100)))
+            non_text_count = sum(1 for byte in chunk if byte not in text_chars)
+            
+            # If more than 30% non-text characters, consider it binary
+            if non_text_count / len(chunk) > 0.3:
+                return True
+            
+            return False
+            
+        except Exception as e:
+            # If we can't determine, assume it's binary to be safe
+            print(f"Warning: Could not determine if {file_path.name} is binary: {str(e)}")
+            return True
 
 # FileOrganizationApp class and related code removed as it's redundant with the PyQt6 implementation
