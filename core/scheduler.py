@@ -8,6 +8,9 @@ import threading
 import time
 from datetime import datetime
 
+# Create module-specific logger
+logger = logging.getLogger('Sortify.Scheduler')
+
 class SortScheduler:
     """Enhanced scheduler for automated sorting tasks with improved reliability and features"""
     def __init__(self, file_ops, categorizer):
@@ -27,13 +30,13 @@ class SortScheduler:
         """Start the scheduler"""
         if not self.scheduler.running:
             self.scheduler.start()
-            logging.info("Scheduler started")
+            logger.info("Scheduler started")
             
     def stop(self):
         """Stop the scheduler"""
         if self.scheduler.running:
             self.scheduler.shutdown()
-            logging.info("Scheduler stopped")
+            logger.info("Scheduler stopped")
             
     def add_job(self, folder_path, name, trigger_type='daily', day_of_week=None, 
                 hour=0, minute=0, day=1, interval_minutes=None, recursive=False):
@@ -53,7 +56,7 @@ class SortScheduler:
         folder_path = Path(folder_path)
         
         if not folder_path.exists() or not folder_path.is_dir():
-            logging.error(f"Cannot schedule job for non-existent directory: {folder_path}")
+            logger.error(f"Cannot schedule job for non-existent directory: {folder_path}")
             return False
             
         # Validate that job name doesn't already exist
@@ -77,7 +80,7 @@ class SortScheduler:
             trigger = CronTrigger(day=day, hour=hour, minute=minute)
             schedule_desc = f"monthly on day {day} at {hour:02d}:{minute:02d}"
         else:
-            logging.error(f"Unknown trigger type: {trigger_type}")
+            logger.error(f"Unknown trigger type: {trigger_type}")
             return False
             
         # Add the job to the scheduler
@@ -106,7 +109,7 @@ class SortScheduler:
         # Initialize job history
         self.job_history[name] = []
         
-        logging.info(f"Scheduled sorting job '{name}' for {folder_path} {schedule_desc} (recursive={recursive})")
+        logger.info(f"Scheduled sorting job '{name}' for {folder_path} {schedule_desc} (recursive={recursive})")
         return True
     
     def add_one_time_job(self, folder_path, name, run_date=None, recursive=False):
@@ -121,7 +124,7 @@ class SortScheduler:
         folder_path = Path(folder_path)
         
         if not folder_path.exists() or not folder_path.is_dir():
-            logging.error(f"Cannot schedule job for non-existent directory: {folder_path}")
+            logger.error(f"Cannot schedule job for non-existent directory: {folder_path}")
             return False
             
         # Validate that job name doesn't already exist
@@ -175,7 +178,7 @@ class SortScheduler:
         # Initialize job history
         self.job_history[name] = []
         
-        logging.info(f"Scheduled one-time sorting job '{name}' for {folder_path} {schedule_desc}")
+        logger.info(f"Scheduled one-time sorting job '{name}' for {folder_path} {schedule_desc}")
         return True
         
     def remove_job(self, name):
@@ -186,12 +189,12 @@ class SortScheduler:
                 try:
                     self.scheduler.remove_job(name)
                 except Exception as e:
-                    logging.warning(f"Error removing job {name} from scheduler: {e}")
+                    logger.warning(f"Error removing job {name} from scheduler: {e}")
             
             del self.jobs[name]
             
             # Keep the history for reference
-            logging.info(f"Removed scheduled job: {name}")
+            logger.info(f"Removed scheduled job: {name}")
             return True
         return False
     
@@ -199,7 +202,7 @@ class SortScheduler:
         """Pause a scheduled job"""
         if name in self.jobs and self.jobs[name]['job'] is not None:
             self.jobs[name]['job'].pause()
-            logging.info(f"Paused job: {name}")
+            logger.info(f"Paused job: {name}")
             return True
         return False
     
@@ -207,7 +210,7 @@ class SortScheduler:
         """Resume a paused job"""
         if name in self.jobs and self.jobs[name]['job'] is not None:
             self.jobs[name]['job'].resume()
-            logging.info(f"Resumed job: {name}")
+            logger.info(f"Resumed job: {name}")
             return True
         return False
         
@@ -219,7 +222,7 @@ class SortScheduler:
         files_moved = 0
         errors = 0
         
-        logging.info(f"Running scheduled sort for folder: {folder_path} (recursive={recursive})")
+        logger.info(f"Running scheduled sort for folder: {folder_path} (recursive={recursive})")
         
         try:
             # Get all files in the folder (recursive or non-recursive)
@@ -229,11 +232,11 @@ class SortScheduler:
                 files = [f for f in folder_path.iterdir() if f.is_file()]
             
             if not files:
-                logging.info(f"No files found to sort in {folder_path}")
+                logger.info(f"No files found to sort in {folder_path}")
                 return
                 
             total_files = len(files)
-            logging.info(f"Found {total_files} files to sort")
+            logger.info(f"Found {total_files} files to sort")
             
             # Sort each file
             for file_path in files:
@@ -242,7 +245,7 @@ class SortScheduler:
                     
                     # Skip zero-byte files
                     if file_path.stat().st_size == 0:
-                        logging.warning(f"Skipping zero-byte file: {file_path}")
+                        logger.warning(f"Skipping zero-byte file: {file_path}")
                         continue
                     
                     category = self.categorizer.categorize_file(file_path)
@@ -253,10 +256,10 @@ class SortScheduler:
                     
                 except Exception as e:
                     errors += 1
-                    logging.error(f"Error sorting file {file_path}: {e}")
+                    logger.error(f"Error sorting file {file_path}: {e}")
             
             duration = time.time() - start_time
-            logging.info(f"Completed scheduled sort for {folder_path}: {files_moved}/{total_files} files moved in {duration:.2f}s")
+            logger.info(f"Completed scheduled sort for {folder_path}: {files_moved}/{total_files} files moved in {duration:.2f}s")
             
             # Update job statistics
             if job_name and job_name in self.jobs:
@@ -279,7 +282,7 @@ class SortScheduler:
                     self.job_history[job_name] = self.job_history[job_name][-self.max_history_per_job:]
             
         except Exception as e:
-            logging.error(f"Error during scheduled sort of {folder_path}: {e}")
+            logger.error(f"Error during scheduled sort of {folder_path}: {e}")
             
             # Update error statistics
             if job_name and job_name in self.jobs:
@@ -289,7 +292,7 @@ class SortScheduler:
         """Try to move a file with retry logic for locked files"""
         # Guard against None file_ops
         if self.file_ops is None:
-            logging.error(f"Cannot move file {file_path}: FileOperations not initialized")
+            logger.error(f"Cannot move file {file_path}: FileOperations not initialized")
             return False
             
         max_retries = 3
@@ -298,19 +301,19 @@ class SortScheduler:
         for attempt in range(max_retries):
             try:
                 self.file_ops.move_file(file_path, category)
-                logging.info(f"Sorted {file_path.name} to {category}")
+                logger.info(f"Sorted {file_path.name} to {category}")
                 return True
             except PermissionError:
                 # File might be locked by another process
                 if attempt < max_retries - 1:
-                    logging.warning(f"File locked, retrying in {retry_delay}s: {file_path}")
+                    logger.warning(f"File locked, retrying in {retry_delay}s: {file_path}")
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
                 else:
-                    logging.error(f"File locked after {max_retries} attempts: {file_path}")
+                    logger.error(f"File locked after {max_retries} attempts: {file_path}")
                     raise
             except Exception as e:
-                logging.error(f"Error moving file {file_path}: {e}")
+                logger.error(f"Error moving file {file_path}: {e}")
                 raise
     
     def _job_executed_event(self, event):
@@ -326,7 +329,7 @@ class SortScheduler:
         job_id = event.job_id
         if job_id in self.jobs:
             self.jobs[job_id]['error_count'] += 1
-            logging.error(f"Job {job_id} failed with exception: {event.exception}")
+            logger.error(f"Job {job_id} failed with exception: {event.exception}")
             
     def get_jobs(self):
         """Get a copy of the current jobs dictionary"""
@@ -345,7 +348,7 @@ class SortScheduler:
     def set_global_recursive(self, recursive):
         """Set the global recursive sorting setting"""
         self.recursive_sort = recursive
-        logging.info(f"Set global recursive sorting to: {recursive}")
+        logger.info(f"Set global recursive sorting to: {recursive}")
         
     def run_all_jobs_now(self):
         """Run all scheduled jobs immediately"""
@@ -355,5 +358,5 @@ class SortScheduler:
                 recursive = job_info['recursive']
                 threading.Thread(target=self._sort_folder, 
                                 args=[folder_path, recursive, name]).start()
-                logging.info(f"Manually triggered job: {name}")
+                logger.info(f"Manually triggered job: {name}")
         return True
