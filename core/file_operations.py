@@ -6,6 +6,10 @@ from PyQt6.QtWidgets import QMessageBox, QInputDialog, QFileDialog
 from .history import HistoryManager
 from .safety_manager import SafetyManager
 from .duplicate_finder import DuplicateFinder
+import logging
+
+# Create module-specific logger
+logger = logging.getLogger('Sortify.FileOperations')
 
 class FileOperations:
     def setup_organization(self, parent=None, max_attempts=3):
@@ -151,8 +155,8 @@ class FileOperations:
                         f"Setup failed after {max_attempts} attempts.\nError: {str(e)}"
                     )
                     return None, None
-                print(f"\n❌ Error: {str(e)}")
-                print("Please try again.")
+                logger.error(f"Error: {str(e)}")
+                logger.info("Please try again.")
                 continue
         
         # If we've exhausted all attempts without returning
@@ -333,7 +337,7 @@ class FileOperations:
                     subcategory_path.mkdir(exist_ok=True)
             return True
         except Exception as e:
-            print(f"Error creating category folders: {e}")
+            logger.error(f"Error creating category folders: {e}")
             return False
     
     def start_operations(self):
