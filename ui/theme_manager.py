@@ -1,5 +1,9 @@
 import os
+import logging
 from pathlib import Path
+
+# Create module-specific logger
+logger = logging.getLogger('Sortify.ThemeManager')
 
 class ThemeManager:
     """
@@ -52,7 +56,7 @@ class ThemeManager:
             qss_path = base_dir / "resources" / "theme.qss"
             
             if not qss_path.exists():
-                print(f"Warning: Stylesheet not found at {qss_path}")
+                logger.warning(f"Stylesheet not found at {qss_path}")
                 return ""
 
             with open(qss_path, "r", encoding="utf-8") as f:
@@ -65,5 +69,5 @@ class ThemeManager:
             return stylesheet
 
         except Exception as e:
-            print(f"Error loading theme: {e}")
+            logger.error(f"Error loading theme: {e}")
             return ""
