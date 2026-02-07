@@ -9,6 +9,9 @@ from datetime import datetime
 from .file_operations import FileOperations
 from .categorization import FileCategorizationAI
 
+# Create module-specific logger
+logger = logging.getLogger('Sortify.Watcher')
+
 class FileChangeHandler(FileSystemEventHandler):
     """Enhanced handler for file system events"""
     def __init__(self, file_ops, categorizer):
@@ -26,7 +29,7 @@ class FileChangeHandler(FileSystemEventHandler):
             
             # Skip temporary files and partial downloads
             if any(pattern in file_path.name for pattern in self.ignored_patterns):
-                logging.debug(f"Ignoring temporary file: {file_path}")
+                logger.debug(f"Ignoring temporary file: {file_path}")
                 return
                 
             # Process the file in a separate thread to avoid blocking the watcher
@@ -39,14 +42,14 @@ class FileChangeHandler(FileSystemEventHandler):
             
             # Skip temporary files and partial downloads
             if any(pattern in dest_path.name for pattern in self.ignored_patterns):
-                logging.debug(f"Ignoring moved temporary file: {dest_path}")
+                logger.debug(f"Ignoring moved temporary file: {dest_path}")
                 return
             
             # Skip files that are moved to the destination directory
             # This prevents re-processing files that were just sorted
             if hasattr(self, 'file_ops') and self.file_ops and hasattr(self.file_ops, 'base_dir'):
                 if str(dest_path).startswith(str(self.file_ops.base_dir)):
-                    logging.debug(f"Ignoring file moved to destination directory: {dest_path}")
+                    logger.debug(f"Ignoring file moved to destination directory: {dest_path}")
                     return
                 
             # Process the moved file in a separate thread
@@ -64,27 +67,27 @@ class FileChangeHandler(FileSystemEventHandler):
             
             # Wait for the file to be fully written and stable
             if not self._wait_for_file_stability(file_path):
-                logging.warning(f"File not ready for processing (locked or timeout): {file_path}")
+                logger.warning(f"File not ready for processing (locked or timeout): {file_path}")
                 return
             
             # Check if file still exists after waiting
             if not file_path.exists():
-                logging.warning(f"File no longer exists, skipping auto-sort: {file_path}")
+                logger.warning(f"File no longer exists, skipping auto-sort: {file_path}")
                 return
                 
             # Skip zero-byte files
             if file_path.stat().st_size == 0:
-                logging.warning(f"Skipping zero-byte file: {file_path}")
+                logger.warning(f"Skipping zero-byte file: {file_path}")
                 return
             
             # Check if the file is already in a destination directory
             # This prevents re-processing files that were just sorted
             dest_base_dir = self.file_ops.base_dir
             if str(file_path).startswith(str(dest_base_dir)):
-                logging.info(f"Skipping file already in destination directory: {file_path}")
+                logger.info(f"Skipping file already in destination directory: {file_path}")
                 return
                 
-            logging.info(f"Processing new file: {file_path}")
+            logger.info(f"Processing new file: {file_path}")
             
             # Get the appropriate category for the file
             category = self.categorizer.categorize_file(file_path)
@@ -94,10 +97,10 @@ class FileChangeHandler(FileSystemEventHandler):
                 # Try to move the file, with retry logic
                 self._move_with_retry(file_path, category)
             else:
-                logging.warning(f"File disappeared before it could be moved: {file_path}")
+                logger.warning(f"File disappeared before it could be moved: {file_path}")
                 
         except Exception as e:
-            logging.error(f"Error auto-sorting file {file_path}: {e}")
+            logger.error(f"Error auto-sorting file {file_path}: {e}")
         finally:
             # Always remove the file from the processing set when done
             with self.lock:
@@ -157,18 +160,18 @@ class FileChangeHandler(FileSystemEventHandler):
                 time.sleep(0.5)
                 
             except (FileNotFoundError, OSError) as e:
-                logging.debug(f"File check failed for {file_path}: {e}")
+                logger.debug(f"File check failed for {file_path}: {e}")
                 return False  # File disappeared or became inaccessible
         
         # Timeout reached
-        logging.warning(f"File stability timeout reached for {file_path}")
+        logger.warning(f"File stability timeout reached for {file_path}")
         return False
     
     def _move_with_retry(self, file_path, category):
         """Try to move a file with retry logic for locked files"""
         # Guard against None file_ops
         if self.file_ops is None:
-            logging.error(f"Cannot auto-sort file {file_path}: FileOperations not initialized")
+            logger.error(f"Cannot auto-sort file {file_path}: FileOperations not initialized")
             return False
             
         max_retries = 3
@@ -177,19 +180,19 @@ class FileChangeHandler(FileSystemEventHandler):
         for attempt in range(max_retries):
             try:
                 self.file_ops.move_file(file_path, category)
-                logging.info(f"Auto-sorted file to {category}: {file_path.name}")
+                logger.info(f"Auto-sorted file to {category}: {file_path.name}")
                 return True
             except PermissionError:
                 # File might be locked by another process
                 if attempt < max_retries - 1:
-                    logging.warning(f"File locked, retrying in {retry_delay}s: {file_path}")
+                    logger.warning(f"File locked, retrying in {retry_delay}s: {file_path}")
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
                 else:
-                    logging.error(f"File locked after {max_retries} attempts: {file_path}")
+                    logger.error(f"File locked after {max_retries} attempts: {file_path}")
                     return False
             except Exception as e:
-                logging.error(f"Error moving file {file_path}: {e}")
+                logger.error(f"Error moving file {file_path}: {e}")
                 return False
 
 class FolderWatcher:
@@ -225,7 +228,7 @@ class FolderWatcher:
             self.observer.start()
             self.running = True
             self.stats['started_at'] = datetime.now()
-            logging.info(f"Started watching folder: {self.watch_path}")
+            logger.info(f"Started watching folder: {self.watch_path}")
             
     def stop(self):
         """Stop watching the folder"""
@@ -234,7 +237,7 @@ class FolderWatcher:
             self.observer.join()
             self.running = False
             self._observer_was_stopped = True
-            logging.info(f"Stopped watching folder: {self.watch_path}")
+            logger.info(f"Stopped watching folder: {self.watch_path}")
             
     def is_running(self):
         """Check if watcher is running"""
@@ -247,13 +250,13 @@ class FolderWatcher:
     def _process_existing_files(self):
         """Process existing files in the watched directory"""
         try:
-            logging.info(f"Scanning existing files in {self.watch_path}")
+            logger.info(f"Scanning existing files in {self.watch_path}")
             
             # Get all files in the directory
             files = [f for f in self.watch_path.glob('**/*') if f.is_file()]
             
             if files:
-                logging.info(f"Found {len(files)} existing files to process")
+                logger.info(f"Found {len(files)} existing files to process")
                 
                 # Get destination directory to exclude from processing
                 dest_base_dir = None
@@ -268,15 +271,15 @@ class FolderWatcher:
                     
                     # Skip files in destination directory
                     if dest_base_dir and str(file_path).startswith(dest_base_dir):
-                        logging.info(f"Skipping file already in destination directory: {file_path}")
+                        logger.info(f"Skipping file already in destination directory: {file_path}")
                         continue
                     
                     # Process the file
                     self.handler._process_file(file_path)
                     
-                logging.info(f"Completed processing existing files in {self.watch_path}")
+                logger.info(f"Completed processing existing files in {self.watch_path}")
             else:
-                logging.info(f"No existing files found in {self.watch_path}")
+                logger.info(f"No existing files found in {self.watch_path}")
                 
         except Exception as e:
-            logging.error(f"Error processing existing files: {e}")
+            logger.error(f"Error processing existing files: {e}")
