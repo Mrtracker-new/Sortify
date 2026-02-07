@@ -18,6 +18,9 @@ import logging
 import shutil
 import os
 
+# Create module-specific logger
+logger = logging.getLogger('Sortify.MainWindow')
+
 class ProcessingThread(QThread):
     progress = pyqtSignal(int)
     finished = pyqtSignal(dict)  # Now emits results dictionary
@@ -38,7 +41,7 @@ class ProcessingThread(QThread):
             try:
                 # Check for cancellation
                 if self._cancelled:
-                    logging.info("Operation cancelled by user")
+                    logger.info("Operation cancelled by user")
                     self.cancelled.emit()  # Emit cancelled signal
                     return  # Exit early
                 
@@ -48,15 +51,15 @@ class ProcessingThread(QThread):
                 
                 if result:  # move_file returns None if user cancels confirmation
                     results['success'].append((file, str(result)))
-                    logging.info(f"Successfully processed: {file}")
+                    logger.info(f"Successfully processed: {file}")
                 else:
                     results['failed'].append((file, "User cancelled operation"))
-                    logging.warning(f"Operation cancelled for: {file}")
+                    logger.warning(f"Operation cancelled for: {file}")
                     
             except Exception as e:
                 # Log the error but continue processing other files
                 error_msg = str(e)
-                logging.error(f"Failed to process {file}: {error_msg}")
+                logger.error(f"Failed to process {file}: {error_msg}")
                 results['failed'].append((file, error_msg))
             
             # Update progress regardless of success/failure
@@ -68,7 +71,7 @@ class ProcessingThread(QThread):
     def cancel(self):
         """Cancel the ongoing operation"""
         self._cancelled = True
-        logging.info("Cancellation requested for processing thread")
+        logger.info("Cancellation requested for processing thread")
 
 class ModelLoaderThread(QThread):
     """
@@ -83,30 +86,30 @@ class ModelLoaderThread(QThread):
             from core.image_analyzer import ImageAnalyzer
             from core.command_parser import CommandParser
             
-            logging.info("Starting background model loading...")
+            logger.info("Starting background model loading...")
             
             # Initialize AI classifier
             ai_classifier = None
             model_path = Path('data/ai_model.pkl')
             if model_path.exists():
                 ai_classifier = AIFileClassifier(str(model_path))
-                logging.info("Loaded AI classifier model")
+                logger.info("Loaded AI classifier model")
             else:
                 ai_classifier = AIFileClassifier()
-                logging.info("Created new AI classifier")
+                logger.info("Created new AI classifier")
                 
             # Initialize image analyzer
             image_analyzer = ImageAnalyzer()
-            logging.info("Initialized image analyzer")
+            logger.info("Initialized image analyzer")
             
             # Initialize command parser
             command_parser = CommandParser()
-            logging.info("Initialized command parser")
+            logger.info("Initialized command parser")
             
             self.finished.emit(ai_classifier, image_analyzer, command_parser)
             
         except Exception as e:
-            logging.error(f"Error in model loader thread: {e}")
+            logger.error(f"Error in model loader thread: {e}")
             # Emit None to signal failure/partial loading
             self.finished.emit(None, None, None)
 
@@ -292,10 +295,10 @@ class MainWindow(QMainWindow):
         
         if self.ai_classifier:
             self.status_bar.showMessage("Ready (AI Enabled)")
-            logging.info("Advanced features accepted and loaded.")
+            logger.info("Advanced features accepted and loaded.")
         else:
             self.status_bar.showMessage("Ready (Basic Mode - AI Unavailable)")
-            logging.warning("Advanced features failed to load.")
+            logger.warning("Advanced features failed to load.")
             
             # Show warning dialog to inform user about AI unavailability
             QMessageBox.warning(
@@ -322,7 +325,7 @@ class MainWindow(QMainWindow):
             return
         
         try:
-            logging.info("Applying saved settings from config")
+            logger.info("Applying saved settings from config")
             
             # Auto-sort settings
             if self.config_manager.get('auto_sort_enabled', False):
@@ -330,7 +333,7 @@ class MainWindow(QMainWindow):
                 if watch_folder and Path(watch_folder).exists():
                     # Ensure file_ops is initialized
                     if not self.file_ops:
-                        logging.info("Skipping auto-sort: file_ops not initialized")
+                        logger.info("Skipping auto-sort: file_ops not initialized")
                         return
                     
                     # Start watcher
@@ -338,9 +341,9 @@ class MainWindow(QMainWindow):
                         self.watcher = FolderWatcher(watch_folder, self.file_ops, self.categorizer)
                         self.watcher.start()
                         self.status_bar.showMessage(f"Auto-sort enabled for {Path(watch_folder).name}")
-                        logging.info(f"Started auto-sort watcher for: {watch_folder}")
+                        logger.info(f"Started auto-sort watcher for: {watch_folder}")
                     except Exception as e:
-                        logging.error(f"Error starting watcher: {e}")
+                        logger.error(f"Error starting watcher: {e}")
             
             # Schedule settings
             if self.config_manager.get('schedule_enabled', False):
@@ -348,7 +351,7 @@ class MainWindow(QMainWindow):
                 if schedule_folder and Path(schedule_folder).exists():
                     # Ensure file_ops and scheduler are initialized
                     if not self.file_ops:
-                        logging.info("Skipping scheduler: file_ops not initialized")
+                        logger.info("Skipping scheduler: file_ops not initialized")
                         return
                     
                     if not self.scheduler:
@@ -369,9 +372,9 @@ class MainWindow(QMainWindow):
                             minute=minute,
                             day=day
                         )
-                        logging.info(f"Added {schedule_type} schedule for: {schedule_folder}")
+                        logger.info(f"Added {schedule_type} schedule for: {schedule_folder}")
                     except Exception as e:
-                        logging.error(f"Error adding scheduled job: {e}")
+                        logger.error(f"Error adding scheduled job: {e}")
             
             # AI settings
             if self.config_manager.get('ai_enabled', False):
@@ -380,30 +383,30 @@ class MainWindow(QMainWindow):
                     try:
                         from core.ai_categorizer import AIFileClassifier
                         self.ai_classifier = AIFileClassifier(model_path)
-                        logging.info(f"Loaded AI classifier from: {model_path}")
+                        logger.info(f"Loaded AI classifier from: {model_path}")
                     except Exception as e:
-                        logging.error(f"Error loading AI classifier: {e}")
+                        logger.error(f"Error loading AI classifier: {e}")
             
-            logging.info("Finished applying saved settings")
+            logger.info("Finished applying saved settings")
             
         except Exception as e:
-            logging.error(f"Error applying saved settings: {e}")
+            logger.error(f"Error applying saved settings: {e}")
     
     def closeEvent(self, event):
         """Handle window close event"""
         try:
-            logging.info("Application closing, cleaning up resources...")
+            logger.info("Application closing, cleaning up resources...")
             
             # Close history manager database connection
             if hasattr(self, 'history_manager') and self.history_manager:
                 self.history_manager.close()
-                logging.info("History manager closed")
+                logger.info("History manager closed")
             
             # Finalize file operations if active
             if hasattr(self, 'file_ops') and self.file_ops:
                 if hasattr(self.file_ops, 'session_active') and self.file_ops.session_active:
                     self.file_ops.finalize_operations()
-                    logging.info("File operations finalized")
+                    logger.info("File operations finalized")
             
             # Clean up background threads
             if hasattr(self, 'processing_thread') and self.processing_thread:
@@ -412,30 +415,30 @@ class MainWindow(QMainWindow):
                     self.processing_thread.quit()
                     self.processing_thread.wait()
                 self.processing_thread.deleteLater()
-                logging.info("Processing thread cleaned up")
+                logger.info("Processing thread cleaned up")
             
             if hasattr(self, 'loader_thread') and self.loader_thread:
                 if self.loader_thread.isRunning():
                     self.loader_thread.quit()
                     self.loader_thread.wait()
                 self.loader_thread.deleteLater()
-                logging.info("Loader thread cleaned up")
+                logger.info("Loader thread cleaned up")
             
             # Stop scheduler
             if hasattr(self, 'scheduler') and self.scheduler:
                 self.scheduler.stop()
-                logging.info("Scheduler stopped")
+                logger.info("Scheduler stopped")
             
             # Stop watcher
             if hasattr(self, 'watcher') and self.watcher:
                 self.watcher.stop()
-                logging.info("Watcher stopped")
+                logger.info("Watcher stopped")
             
-            logging.info("Resource cleanup completed successfully")
+            logger.info("Resource cleanup completed successfully")
             event.accept()
             
         except Exception as e:
-            logging.error(f"Error during window close: {e}")
+            logger.error(f"Error during window close: {e}")
             # Accept the event anyway to allow the window to close
             event.accept()
 
@@ -463,7 +466,7 @@ class MainWindow(QMainWindow):
                     self.scheduler = SortScheduler(self.file_ops, self.categorizer)
                     if not self.scheduler.scheduler.running:
                         self.scheduler.start()
-                    logging.info("Scheduler initialized with file_ops")
+                    logger.info("Scheduler initialized with file_ops")
                 else:
                     # Scheduler exists, just update file_ops
                     self.scheduler.file_ops = self.file_ops
