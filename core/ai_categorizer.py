@@ -5,6 +5,7 @@ import logging
 import hashlib
 import numpy as np
 from pathlib import Path
+from collections import OrderedDict
 from sklearn.feature_extraction.text import TfidfVectorizer  # Changed from CountVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.ensemble import RandomForestClassifier
@@ -21,6 +22,84 @@ except ImportError:
     logging.warning("textract module not found. Advanced text extraction will be limited.")
     TEXTRACT_AVAILABLE = False
 
+
+class LRUCache:
+    """LRU (Least Recently Used) Cache implementation with automatic eviction.
+    
+    This cache maintains a maximum size and automatically evicts the oldest
+    item when the cache exceeds max_size. Uses OrderedDict for efficient
+    O(1) operations and proper ordering.
+    """
+    def __init__(self, max_size=1000):
+        """Initialize LRU cache with maximum size.
+        
+        Args:
+            max_size: Maximum number of items to store in cache (default: 1000)
+        """
+        self.cache = OrderedDict()
+        self.max_size = max_size
+        self.hits = 0
+        self.misses = 0
+    
+    def get(self, key):
+        """Get an item from cache and mark it as recently used.
+        
+        Args:
+            key: Cache key to retrieve
+            
+        Returns:
+            Cached value if found, None otherwise
+        """
+        if key in self.cache:
+            # Move to end to mark as recently used
+            self.cache.move_to_end(key)
+            self.hits += 1
+            return self.cache[key]
+        self.misses += 1
+        return None
+    
+    def put(self, key, value):
+        """Add or update an item in cache.
+        
+        If the item exists, it's moved to the end (most recent).
+        If cache exceeds max_size, the oldest item is evicted.
+        
+        Args:
+            key: Cache key
+            value: Value to store
+        """
+        if key in self.cache:
+            # Update existing item and move to end
+            self.cache.move_to_end(key)
+        self.cache[key] = value
+        
+        # Evict oldest item if cache size exceeded
+        if len(self.cache) > self.max_size:
+            self.cache.popitem(last=False)  # Remove oldest (first) item
+    
+    def clear(self):
+        """Clear all items from cache."""
+        self.cache.clear()
+        self.hits = 0
+        self.misses = 0
+    
+    def get_stats(self):
+        """Get cache statistics.
+        
+        Returns:
+            dict: Dictionary with cache hits, misses, size, and hit rate
+        """
+        total = self.hits + self.misses
+        hit_rate = (self.hits / total * 100) if total > 0 else 0
+        return {
+            'hits': self.hits,
+            'misses': self.misses,
+            'size': len(self.cache),
+            'max_size': self.max_size,
+            'hit_rate': round(hit_rate, 2)
+        }
+
+
 class AIFileClassifier:
     """AI-based file classifier using Naive Bayes with content analysis"""
     def __init__(self, model_path=None, classifier_type='naive_bayes'):
@@ -29,10 +108,8 @@ class AIFileClassifier:
         self._create_pipeline()
         self.trained = False
         self.categories = []
-        self.feature_cache = {}  # Cache for extracted features
-        self.cache_hits = 0
-        self.cache_misses = 0
-        self.max_cache_size = 1000  # Maximum number of items in cache
+        # Use LRU cache with automatic eviction to prevent memory leaks
+        self.feature_cache = LRUCache(max_size=1000)
         self.last_training_time = None
         self.training_accuracy = None
         self.model_version = 1
@@ -64,6 +141,24 @@ class AIFileClassifier:
             str: Space-joined features extracted from the file
         """
         file_path = Path(file_path)
+        
+        # Create cache key using file path and modification time (if file exists)
+        try:
+            if file_path.exists():
+                mtime = file_path.stat().st_mtime
+                cache_key = f"{file_path}:{mtime}"
+                
+                # Check cache first
+                cached_features = self.feature_cache.get(cache_key)
+                if cached_features is not None:
+                    logging.debug(f"Cache hit for {file_path}")
+                    return cached_features
+            else:
+                cache_key = None
+        except Exception as e:
+            logging.debug(f"Error checking cache for {file_path}: {e}")
+            cache_key = None
+        
         features = []
         
         # Add filename as a feature
@@ -108,7 +203,15 @@ class AIFileClassifier:
             except Exception as e:
                 logging.debug(f"Could not extract content from {file_path}: {e}")
         
-        return ' '.join(features)
+        # Join features and cache the result
+        result = ' '.join(features)
+        
+        # Store in cache if we have a valid cache key
+        if cache_key is not None:
+            self.feature_cache.put(cache_key, result)
+            logging.debug(f"Cached features for {file_path}")
+        
+        return result
     
     def _is_text_file(self, file_path):
         """Check if file is likely a text file based on extension
