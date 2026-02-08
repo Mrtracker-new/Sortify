@@ -7,9 +7,42 @@ from .history import HistoryManager
 from .safety_manager import SafetyManager
 from .duplicate_finder import DuplicateFinder
 import logging
+import concurrent.futures
+import threading
 
 # Create module-specific logger
 logger = logging.getLogger('Sortify.FileOperations')
+
+# Shared thread pool for I/O operations (initialized lazily)
+_io_executor = None
+_executor_lock = threading.Lock()
+
+def get_io_executor():
+    """Get or create the shared I/O executor for non-blocking file operations"""
+    global _io_executor
+    if _io_executor is None:
+        with _executor_lock:
+            if _io_executor is None:
+                # Use up to 4 threads for I/O operations
+                _io_executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=4,
+                    thread_name_prefix='FileIO'
+                )
+    return _io_executor
+
+def _read_file_sync(file_path, max_chars=1000):
+    """
+    Synchronous file reading helper - runs in thread pool
+    
+    Args:
+        file_path: Path object to read
+        max_chars: Maximum characters to read
+    Returns:
+        str: File content (up to max_chars)
+    """
+    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        return f.read(max_chars)
+
 
 class FileOperations:
     def setup_organization(self, parent=None, max_attempts=3):
@@ -1069,50 +1102,57 @@ class FileOperations:
         if category_path is None:
             # Check if it's a text file we can analyze
             if self._is_text_file(file_path):
-                try:
-                    # PERFORMANCE FIX: Skip very large files (over 10MB)
-                    file_size = file_path.stat().st_size
-                    if file_size > 10 * 1024 * 1024:  # 10MB
-                        # Large file, skip content analysis
+                # PERFORMANCE FIX: Skip very large files (over 10MB)
+                file_size = file_path.stat().st_size
+                if file_size > 10 * 1024 * 1024:  # 10MB
+                    # Large file, skip content analysis
+                    category_path = 'misc/other'
+                # SECURITY FIX: Check if file is truly text before reading
+                elif not self._is_binary_file(file_path):
+                    # PERFORMANCE FIX: Use thread pool with timeout to prevent UI freezes
+                    executor = get_io_executor()
+                    future = executor.submit(_read_file_sync, file_path, 1000)
+                    
+                    try:
+                        # Wait max 2 seconds for file read (prevents hangs on network drives)
+                        content = future.result(timeout=2.0)
+                        
+                        # Check for code patterns
+                        if any(pattern in content for pattern in ['def ', 'class ', 'import ', 'function', 'var ', 'const ']):
+                            category_path = 'code/other'
+                        # Check for data patterns
+                        elif any(pattern in content for pattern in ['{', '[', '<html>', '<xml>', 'SELECT ', 'CREATE TABLE']):
+                            category_path = 'code/data'
+                        # Default to text documents
+                        else:
+                            category_path = 'documents/text'
+                    except concurrent.futures.TimeoutError:
+                        # File read timed out (hung handle, slow drive, network issue)
+                        print(f"Warning: File read timeout for '{file_path.name}'. Categorizing as misc.")
                         category_path = 'misc/other'
-                    # SECURITY FIX: Check if file is truly text before reading
-                    elif not self._is_binary_file(file_path):
-                        # Use buffered reading to avoid loading entire file
-                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            # Read in smaller chunks with limit
-                            content = f.read(1000)  # Read first 1000 chars
-                            
-                            # Check for code patterns
-                            if any(pattern in content for pattern in ['def ', 'class ', 'import ', 'function', 'var ', 'const ']):
-                                category_path = 'code/other'
-                            # Check for data patterns
-                            elif any(pattern in content for pattern in ['{', '[', '<html>', '<xml>', 'SELECT ', 'CREATE TABLE']):
-                                category_path = 'code/data'
-                            # Default to text documents
-                            else:
-                                category_path = 'documents/text'
-                    else:
-                        # Binary file disguised as text extension
+                    except PermissionError as e:
+                        # User doesn't have permission to read the file
+                        print(f"Warning: Permission denied reading '{file_path.name}' for analysis. Categorizing as misc.")
                         category_path = 'misc/other'
-                except PermissionError as e:
-                    # User doesn't have permission to read the file
-                    print(f"Warning: Permission denied reading '{file_path.name}' for analysis. Categorizing as misc.")
-                    category_path = 'misc/other'
-                except OSError as e:
-                    # I/O error, possibly corrupted file or disk issue
-                    print(f"Warning: I/O error reading '{file_path.name}': {e}. Categorizing as misc.")
-                    category_path = 'misc/other'
-                except UnicodeDecodeError as e:
-                    # File not actually text despite extension
-                    print(f"Warning: Unable to decode '{file_path.name}' as text. Categorizing as misc.")
-                    category_path = 'misc/other'
-                except Exception as e:
-                    # Unexpected error during content analysis
-                    print(f"Warning: Unexpected error analyzing '{file_path.name}': {type(e).__name__}: {e}. Categorizing as misc.")
+                    except OSError as e:
+                        # I/O error, possibly corrupted file or disk issue
+                        print(f"Warning: I/O error reading '{file_path.name}': {e}. Categorizing as misc.")
+                        category_path = 'misc/other'
+                    except UnicodeDecodeError as e:
+                        # File not actually text despite extension
+                        print(f"Warning: Unable to decode '{file_path.name}' as text. Categorizing as misc.")
+                        category_path = 'misc/other'
+                    except Exception as e:
+                        # Unexpected error during content analysis
+                        print(f"Warning: Unexpected error analyzing '{file_path.name}': {type(e).__name__}: {e}. Categorizing as misc.")
+                        category_path = 'misc/other'
+                else:
+                    # Binary file disguised as text extension
                     category_path = 'misc/other'
             else:
                 # Use filename patterns as a last resort
                 if any(pattern in file_name for pattern in ['screenshot', 'screen', 'capture']):
+
                     category_path = 'images/screenshots'
                 elif any(pattern in file_name for pattern in ['invoice', 'receipt', 'bill', 'statement']):
                     category_path = 'documents/financial'
