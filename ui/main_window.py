@@ -77,16 +77,60 @@ class ModelLoaderThread(QThread):
     """
     Background thread to load heavy AI models without freezing the UI.
     """
-    finished = pyqtSignal(object, object, object) # ai_classifier, image_analyzer, command_parser
+    finished = pyqtSignal(object, object, object, object)  # ai_classifier, image_analyzer, command_parser, spacy_nlp
+    progress = pyqtSignal(str)  # Status messages for loading progress
     
     def run(self):
         try:
+            import sys
+            import os
+            from pathlib import Path
+            
             # Import here to avoid main thread lag if they do top-level loading
             from core.ai_categorizer import AIFileClassifier
             from core.image_analyzer import ImageAnalyzer
             from core.command_parser import CommandParser
             
             logger.info("Starting background model loading...")
+            
+            # === Load spaCy model first ===
+            spacy_nlp = None
+            try:
+                self.progress.emit("Loading spaCy model...")
+                logger.info("Loading spaCy model in background thread")
+                
+                import spacy
+                import spacy.util
+                
+                # When running from PyInstaller bundle, set up model paths
+                if getattr(sys, '_MEIPASS', None):
+                    possible_model_paths = [
+                        os.path.join(sys._MEIPASS, 'en_core_web_sm'),
+                        os.path.join(os.path.dirname(sys.executable), 'en_core_web_sm'),
+                    ]
+                    
+                    for model_path in possible_model_paths:
+                        if os.path.exists(model_path):
+                            logger.info(f"Setting spaCy model path to: {model_path}")
+                            spacy.util.set_data_path(model_path)
+                            break
+                
+                # Load the model
+                spacy_nlp = spacy.load('en_core_web_sm')
+                logger.info("✓ spaCy model loaded successfully")
+                self.progress.emit("spaCy model loaded")
+                
+            except ImportError as e:
+                logger.warning(f"spaCy model 'en_core_web_sm' not found: {e}")
+                logger.info("Application will use basic pattern-based categorization")
+                self.progress.emit("spaCy model not available - using basic mode")
+            except Exception as e:
+                logger.warning(f"Error loading spaCy: {e}")
+                logger.info("Application will use basic pattern-based categorization")
+                self.progress.emit("spaCy loading failed - using basic mode")
+            
+            # === Load other AI models ===
+            self.progress.emit("Loading AI classifier...")
             
             # Initialize AI classifier
             ai_classifier = None
@@ -99,19 +143,22 @@ class ModelLoaderThread(QThread):
                 logger.info("Created new AI classifier")
                 
             # Initialize image analyzer
+            self.progress.emit("Loading image analyzer...")
             image_analyzer = ImageAnalyzer()
             logger.info("Initialized image analyzer")
             
             # Initialize command parser
+            self.progress.emit("Loading command parser...")
             command_parser = CommandParser()
             logger.info("Initialized command parser")
             
-            self.finished.emit(ai_classifier, image_analyzer, command_parser)
+            self.progress.emit("All models loaded")
+            self.finished.emit(ai_classifier, image_analyzer, command_parser, spacy_nlp)
             
         except Exception as e:
             logger.error(f"Error in model loader thread: {e}")
             # Emit None to signal failure/partial loading
-            self.finished.emit(None, None, None)
+            self.finished.emit(None, None, None, None)
 
 class PreviewDialog(QDialog):
     """Dialog to preview file operations before executing them"""
@@ -230,9 +277,9 @@ class MainWindow(QMainWindow):
         self.file_ops = None
         self.watcher = None
         
-        # Initialize categorizer (lightweight)
+        # Initialize categorizer (lightweight) - spaCy model will be injected later
         from core.categorization import FileCategorizationAI
-        self.categorizer = FileCategorizationAI()
+        self.categorizer = FileCategorizationAI(nlp=None)
         
         # Delay scheduler initialization until file_ops is ready
         # This prevents crashes when scheduled jobs trigger before file_ops exists
@@ -285,20 +332,38 @@ class MainWindow(QMainWindow):
         
         self.loader_thread = ModelLoaderThread()
         self.loader_thread.finished.connect(self.on_models_loaded)
+        self.loader_thread.progress.connect(self.on_loading_progress)
         self.loader_thread.start()
+    
+    def on_loading_progress(self, message):
+        """Update status bar with loading progress"""
+        self.status_bar.showMessage(message)
+        logger.debug(f"Loading progress: {message}")
         
-    def on_models_loaded(self, ai_classifier, image_analyzer, command_parser):
+    def on_models_loaded(self, ai_classifier, image_analyzer, command_parser, spacy_nlp):
         """Handle completion of background model loading"""
         self.ai_classifier = ai_classifier
         self.image_analyzer = image_analyzer
         self.command_parser = command_parser
         
-        if self.ai_classifier:
+        # Inject spaCy model into categorizer
+        if spacy_nlp is not None:
+            self.categorizer.set_nlp_model(spacy_nlp)
+            logger.info("spaCy model injected into categorizer")
+        
+        # Update status based on what loaded successfully
+        if self.ai_classifier and spacy_nlp:
             self.status_bar.showMessage("Ready (AI Enabled)")
-            logger.info("Advanced features accepted and loaded.")
+            logger.info("All models loaded successfully - full AI features enabled")
+        elif spacy_nlp:
+            self.status_bar.showMessage("Ready (AI Partially Enabled)")
+            logger.info("spaCy loaded but some AI features unavailable")
+        elif self.ai_classifier:
+            self.status_bar.showMessage("Ready (Basic AI - spaCy Unavailable)")
+            logger.warning("spaCy model not available - using basic categorization")
         else:
             self.status_bar.showMessage("Ready (Basic Mode - AI Unavailable)")
-            logger.warning("Advanced features failed to load.")
+            logger.warning("Advanced features failed to load")
             
             # Show warning dialog to inform user about AI unavailability
             QMessageBox.warning(
