@@ -9,9 +9,16 @@ import logging
 logger = logging.getLogger('Sortify')
 
 class FileCategorizationAI:
-    def __init__(self):
-        self.nlp = None
-        self.ai_enabled = False
+    def __init__(self, nlp=None):
+        """
+        Initialize file categorization.
+        
+        Args:
+            nlp: Optional pre-loaded spaCy model. If None, will attempt to load.
+                 If loading fails, will fall back to pattern-based categorization.
+        """
+        self.nlp = nlp
+        self.ai_enabled = (nlp is not None)
         
         # Define categories here so they're always available
         self.categories = {
@@ -78,20 +85,33 @@ class FileCategorizationAI:
             }
         }
         
-        # Try to load spaCy model, but don't fail if it's not available
-        try:
-            logger.info("Attempting to load spaCy model")
-            self.nlp = spacy.load('en_core_web_sm')
+        # Only try to load spaCy if not provided and not already loaded
+        if self.nlp is None:
+            try:
+                logger.info("Attempting to load spaCy model")
+                self.nlp = spacy.load('en_core_web_sm')
+                self.ai_enabled = True
+                logger.info("✓ spaCy model loaded - AI categorization enabled")
+            except OSError as e:
+                logger.warning(f"spaCy model not available: {e}")
+                logger.info("Continuing with basic pattern-based categorization")
+                self.ai_enabled = False
+            except Exception as e:
+                logger.warning(f"Unexpected error loading spaCy: {e}")
+                logger.info("Continuing with basic pattern-based categorization")
+                self.ai_enabled = False
+    
+    def set_nlp_model(self, nlp):
+        """
+        Update the spaCy model after initialization.
+        
+        Args:
+            nlp: Pre-loaded spaCy model to use for AI categorization
+        """
+        if nlp is not None:
+            self.nlp = nlp
             self.ai_enabled = True
-            logger.info("✓ spaCy model loaded - AI categorization enabled")
-        except OSError as e:
-            logger.warning(f"spaCy model not available: {e}")
-            logger.info("Continuing with basic pattern-based categorization")
-            self.ai_enabled = False
-        except Exception as e:
-            logger.warning(f"Unexpected error loading spaCy: {e}")
-            logger.info("Continuing with basic pattern-based categorization")
-            self.ai_enabled = False
+            logger.info("✓ spaCy model updated - AI categorization now enabled")
         
 
 
