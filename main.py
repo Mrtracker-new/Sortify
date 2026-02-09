@@ -9,36 +9,9 @@ import argparse
 import atexit
 from pathlib import Path
 
-# Set up spaCy model path before importing any modules that use spaCy
-try:
-    import spacy
-    import spacy.util
-    
-    # When running from PyInstaller bundle, set up model paths
-    if getattr(sys, '_MEIPASS', None):
-        possible_model_paths = [
-            os.path.join(sys._MEIPASS, 'en_core_web_sm'),
-            os.path.join(os.path.dirname(sys.executable), 'en_core_web_sm'),
-        ]
-        
-        for model_path in possible_model_paths:
-            if os.path.exists(model_path):
-                print(f"Setting spaCy model path to: {model_path}")
-                spacy.util.set_data_path(model_path)
-                break
-    
-    # Test if model can be loaded
-    try:
-        import en_core_web_sm
-        print(f"✓ spaCy model found at: {en_core_web_sm.__path__[0]}")
-    except ImportError:
-        print("⚠ Warning: spaCy model 'en_core_web_sm' not found.")
-        print("  The application will start but AI features will be limited.")
-        print("  To install the model, run: python -m spacy download en_core_web_sm")
-        
-except Exception as e:
-    print(f"⚠ Warning: Error initializing spaCy: {e}")
-    print("  The application will continue with basic file categorization.")
+# Note: spaCy model loading has been moved to background thread in main_window.py
+# to prevent UI blocking during startup. The ModelLoaderThread will handle
+# spaCy path configuration and model loading asynchronously.
 
 # Now import the rest of the modules
 from PyQt6.QtWidgets import QApplication, QMessageBox
