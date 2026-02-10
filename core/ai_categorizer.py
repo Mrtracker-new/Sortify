@@ -184,6 +184,9 @@ class AIFileClassifier:
         self.last_training_time = None
         self.training_accuracy = None
         self.model_version = 1
+        # Track extraction failures to warn users about degraded categorization
+        self.extraction_failures = []  # List of files where content extraction failed
+        self.extraction_warnings = {}  # Dict mapping file paths to warning messages
         
         # Load existing model if available
         if model_path and os.path.exists(model_path):
@@ -271,7 +274,15 @@ class AIFileClassifier:
                         content_extracted = True
                         logging.debug(f"Successfully extracted and cached content with textract from {file_path}")
             except Exception as e:
-                logging.debug(f"Could not extract content with textract from {file_path}: {e}")
+                logging.warning(f"Textract extraction failed for {file_path}: {e}")
+                # Track this failure for user notification
+                failure_info = {
+                    'file': str(file_path),
+                    'error': str(e),
+                    'timestamp': datetime.now().isoformat()
+                }
+                self.extraction_failures.append(failure_info)
+                self.extraction_warnings[str(file_path)] = "Content extraction failed - categorization based on filename only"
         
         # Fall back to basic text extraction if content wasn't extracted with textract
         if not content_extracted and self._is_text_file(file_path):
@@ -384,11 +395,20 @@ class AIFileClassifier:
                         'confidence': round(float(probabilities[i]), 3)
                     })
             
-            return {
+            result = {
                 'category': category,
                 'confidence': round(float(confidence), 3),
                 'alternatives': alternatives
             }
+            
+            # Include extraction warning if content extraction failed for this file
+            file_path_str = str(file_path)
+            if file_path_str in self.extraction_warnings:
+                result['extraction_warning'] = self.extraction_warnings[file_path_str]
+                result['degraded_accuracy'] = True
+                logging.info(f"WARNING: {file_path} categorized with degraded accuracy due to content extraction failure")
+            
+            return result
         except Exception as e:
             logging.error(f"Error predicting category for {file_path}: {e}")
             return {
@@ -486,6 +506,36 @@ class AIFileClassifier:
         except Exception as e:
             logging.error(f"Error during model evaluation: {e}")
             return {'accuracy': 0.0, 'error': str(e)}
+
+    def get_extraction_stats(self):
+        """Get statistics about content extraction failures.
+        
+        Returns:
+            dict: Statistics including total failures, recent failures, and failure rate
+        """
+        total_failures = len(self.extraction_failures)
+        
+        # Get recent failures (last 10)
+        recent_failures = self.extraction_failures[-10:] if total_failures > 0 else []
+        
+        # Calculate failure rate if we have cache stats
+        feature_cache_stats = self.feature_cache.get_stats()
+        total_extractions = feature_cache_stats['hits'] + feature_cache_stats['misses']
+        failure_rate = (total_failures / total_extractions * 100) if total_extractions > 0 else 0
+        
+        return {
+            'total_failures': total_failures,
+            'recent_failures': recent_failures,
+            'failure_rate': round(failure_rate, 2),
+            'files_with_warnings': len(self.extraction_warnings),
+            'has_degraded_accuracy': total_failures > 0
+        }
+    
+    def clear_extraction_warnings(self):
+        """Clear all extraction failure tracking data."""
+        self.extraction_failures.clear()
+        self.extraction_warnings.clear()
+        logging.info("Cleared extraction failure tracking data")
 
     def train_with_split(self, file_paths, categories, test_size=0.2):
         """Train model with automatic train/test split and return detailed evaluation metrics
