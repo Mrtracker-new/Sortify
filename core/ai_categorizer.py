@@ -22,6 +22,15 @@ except ImportError:
     logging.warning("textract module not found. Advanced text extraction will be limited.")
     TEXTRACT_AVAILABLE = False
 
+# Try to import sentence-transformers, but make it optional
+try:
+    from sentence_transformers import SentenceTransformer
+    from sklearn.metrics.pairwise import cosine_similarity
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    logging.warning("sentence-transformers module not found. Semantic classification will fall back to TF-IDF.")
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
+
 
 class LRUCache:
     """LRU (Least Recently Used) Cache implementation with automatic eviction.
@@ -169,6 +178,159 @@ class ContentCache:
         self.cache.clear()
 
 
+class SentenceTransformerClassifier:
+    """Semantic file classifier using Sentence Transformers for embeddings.
+    
+    This classifier uses the all-MiniLM-L6-v2 model (80MB) to generate semantic
+    embeddings of file content, then uses cosine similarity to match files to
+    categories. This provides significantly better accuracy than TF-IDF for
+    understanding context and meaning in file content.
+    """
+    
+    def __init__(self, model_name='all-MiniLM-L6-v2'):
+        """Initialize the Sentence Transformer classifier.
+        
+        Args:
+            model_name: Name of the sentence-transformers model to use
+                       (default: 'all-MiniLM-L6-v2' - 80MB, fast, accurate)
+        """
+        if not SENTENCE_TRANSFORMERS_AVAILABLE:
+            raise ImportError(
+                "sentence-transformers is not installed. "
+                "Install it with: pip install sentence-transformers"
+            )
+        
+        self.model_name = model_name
+        self.model = None
+        self.category_embeddings = {}  # Category prototype embeddings
+        self.categories = []
+        self.trained = False
+        
+        # Cache for embeddings to avoid recomputing
+        self.embedding_cache = LRUCache(max_size=1000)
+        
+        # Initialize the model on first use (lazy loading)
+        self._initialize_model()
+    
+    def _initialize_model(self):
+        """Initialize the sentence transformer model (lazy loading)."""
+        if self.model is None:
+            try:
+                logging.info(f"Loading Sentence Transformer model: {self.model_name}")
+                logging.info("First time download may take a minute (model is ~80MB)...")
+                self.model = SentenceTransformer(self.model_name)
+                logging.info(f"Model {self.model_name} loaded successfully!")
+            except Exception as e:
+                logging.error(f"Failed to load Sentence Transformer model: {e}")
+                raise
+    
+    def _get_embedding(self, text):
+        """Generate embedding for text with caching.
+        
+        Args:
+            text: Text to generate embedding for
+            
+        Returns:
+            numpy array: Embedding vector for the text
+        """
+        # Create cache key using hash of text
+        cache_key = hashlib.md5(text.encode('utf-8', errors='ignore')).hexdigest()
+        
+        # Check cache first
+        cached_embedding = self.embedding_cache.get(cache_key)
+        if cached_embedding is not None:
+            return cached_embedding
+        
+        # Generate embedding
+        embedding = self.model.encode(text, convert_to_numpy=True)
+        
+        # Cache it
+        self.embedding_cache.put(cache_key, embedding)
+        
+        return embedding
+    
+    def train(self, texts, categories):
+        """Train the classifier on text examples.
+        
+        Args:
+            texts: List of text features (from extract_features)
+            categories: List of corresponding categories
+        """
+        if len(texts) != len(categories):
+            raise ValueError("Number of texts and categories must match")
+        
+        # Store unique categories
+        self.categories = list(set(categories))
+        
+        logging.info(f"Training Sentence Transformer classifier on {len(texts)} samples...")
+        
+        # For each category, compute average embedding (prototype)
+        category_texts = {cat: [] for cat in self.categories}
+        for text, category in zip(texts, categories):
+            category_texts[category].append(text)
+        
+        # Compute prototype embeddings
+        for category in self.categories:
+            texts_for_category = category_texts[category]
+            embeddings = [self._get_embedding(text) for text in texts_for_category]
+            
+            # Average all embeddings for this category
+            avg_embedding = np.mean(embeddings, axis=0)
+            self.category_embeddings[category] = avg_embedding
+            
+            logging.debug(f"  Category '{category}': {len(texts_for_category)} samples")
+        
+        self.trained = True
+        logging.info(f"Training complete! {len(self.categories)} categories learned.")
+    
+    def predict(self, text):
+        """Predict category for text with confidence scores.
+        
+        Args:
+            text: Text features to classify
+            
+        Returns:
+            tuple: (predicted_category, confidence_score, probabilities_dict)
+        """
+        if not self.trained:
+            raise ValueError("Classifier must be trained before prediction")
+        
+        # Generate embedding for the input text
+        text_embedding = self._get_embedding(text).reshape(1, -1)
+        
+        # Calculate cosine similarity with each category prototype
+        similarities = {}
+        for category, category_embedding in self.category_embeddings.items():
+            similarity = cosine_similarity(
+                text_embedding, 
+                category_embedding.reshape(1, -1)
+            )[0][0]
+            similarities[category] = float(similarity)
+        
+        # Get the category with highest similarity
+        predicted_category = max(similarities, key=similarities.get)
+        confidence = similarities[predicted_category]
+        
+        # Convert similarities to pseudo-probabilities (softmax-like normalization)
+        # This makes them comparable to sklearn's predict_proba output
+        total = sum(similarities.values())
+        if total > 0:
+            probabilities = {cat: sim / total for cat, sim in similarities.items()}
+        else:
+            probabilities = {cat: 1.0 / len(similarities) for cat in similarities}
+        
+        return predicted_category, confidence, probabilities
+    
+    def get_embedding_stats(self):
+        """Get statistics about embedding cache.
+        
+        Returns:
+            dict: Cache statistics
+        """
+        return self.embedding_cache.get_stats()
+
+
+
 class AIFileClassifier:
     """AI-based file classifier using Naive Bayes with content analysis"""
     def __init__(self, model_path=None, classifier_type='naive_bayes'):
@@ -194,7 +356,19 @@ class AIFileClassifier:
             
     def _create_pipeline(self):
         """Create the ML pipeline based on the selected classifier type"""
-        if self.classifier_type == 'random_forest':
+        if self.classifier_type == 'sentence_transformer':
+            # Use Sentence Transformers for semantic understanding
+            if SENTENCE_TRANSFORMERS_AVAILABLE:
+                self.model = SentenceTransformerClassifier()
+                logging.info("Using Sentence Transformer classifier for semantic categorization")
+            else:
+                logging.warning("Sentence Transformers not available, falling back to Naive Bayes")
+                self.classifier_type = 'naive_bayes'
+                self.model = Pipeline([
+                    ('vectorizer', TfidfVectorizer(analyzer='word', ngram_range=(1, 3), max_features=5000)),
+                    ('classifier', MultinomialNB())
+                ])
+        elif self.classifier_type == 'random_forest':
             self.model = Pipeline([
                 ('vectorizer', TfidfVectorizer(analyzer='word', ngram_range=(1, 3), max_features=5000)),
                 ('classifier', RandomForestClassifier(n_estimators=100, random_state=42))
@@ -204,6 +378,7 @@ class AIFileClassifier:
                 ('vectorizer', TfidfVectorizer(analyzer='word', ngram_range=(1, 3), max_features=5000)),
                 ('classifier', MultinomialNB())
             ])
+
     
     def extract_features(self, file_path):
         """Extract features from a file for classification including content analysis
@@ -344,8 +519,12 @@ class AIFileClassifier:
         # Store unique categories
         self.categories = list(set(categories))
         
-        # Train the model
-        self.model.fit(features, categories)
+        # Train the model (different API for SentenceTransformer vs sklearn)
+        if self.classifier_type == 'sentence_transformer':
+            self.model.train(features, categories)
+        else:
+            self.model.fit(features, categories)
+        
         self.trained = True
         logging.info(f"Trained AI classifier on {len(file_paths)} files with {len(self.categories)} categories")
     
@@ -376,24 +555,39 @@ class AIFileClassifier:
             # Extract features
             features = self.extract_features(file_path)
             
-            # Get prediction and probability scores
-            category = self.model.predict([features])[0]
-            probabilities = self.model.predict_proba([features])[0]
-            
-            # Find the confidence score (probability) for the predicted category
-            category_index = list(self.model.classes_).index(category)
-            confidence = probabilities[category_index]
-            
-            # Get top 3 alternative categories with their confidence scores
-            alternatives = []
-            sorted_indices = probabilities.argsort()[::-1]  # Sort indices by probability (descending)
-            
-            for i in sorted_indices[:3]:  # Get top 3
-                if self.model.classes_[i] != category:  # Skip the main prediction
-                    alternatives.append({
-                        'category': self.model.classes_[i],
-                        'confidence': round(float(probabilities[i]), 3)
-                    })
+            # Handle different classifier types
+            if self.classifier_type == 'sentence_transformer':
+                # SentenceTransformer returns (category, confidence, probabilities_dict)
+                category, confidence, probabilities_dict = self.model.predict(features)
+                
+                # Get top 3 alternatives
+                alternatives = []
+                sorted_probs = sorted(probabilities_dict.items(), key=lambda x: x[1], reverse=True)
+                for cat, prob in sorted_probs:
+                    if cat != category and len(alternatives) < 3:
+                        alternatives.append({
+                            'category': cat,
+                            'confidence': round(float(prob), 3)
+                        })
+            else:
+                # sklearn Pipeline API
+                category = self.model.predict([features])[0]
+                probabilities = self.model.predict_proba([features])[0]
+                
+                # Find the confidence score (probability) for the predicted category
+                category_index = list(self.model.classes_).index(category)
+                confidence = probabilities[category_index]
+                
+                # Get top 3 alternative categories with their confidence scores
+                alternatives = []
+                sorted_indices = probabilities.argsort()[::-1]  # Sort indices by probability (descending)
+                
+                for i in sorted_indices[:3]:  # Get top 3
+                    if self.model.classes_[i] != category:  # Skip the main prediction
+                        alternatives.append({
+                            'category': self.model.classes_[i],
+                            'confidence': round(float(probabilities[i]), 3)
+                        })
             
             result = {
                 'category': category,
