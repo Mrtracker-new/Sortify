@@ -61,4 +61,5 @@ weasel>=0.4.1
 tabulate>=0.9.0
 
 # Optional dependencies for enhanced features
+sentence-transformers>=2.2.0  # For semantic file categorization (80MB model)
 # textract  # For advanced text extraction from various file formats (optional)
