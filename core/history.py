@@ -236,6 +236,22 @@ class HistoryManager:
             )
             logger.info("Timestamp index ensured")
             
+            # Create index on session_id for faster session-based queries
+            logger.info("Creating session_id index if it doesn't exist")
+            self.db_manager.execute_query(
+                "CREATE INDEX IF NOT EXISTS idx_history_session_id ON history(session_id)",
+                fetch_mode='none'
+            )
+            logger.info("Session ID index ensured")
+            
+            # Create composite index for common query pattern (session + timestamp)
+            logger.info("Creating composite session_id+timestamp index if it doesn't exist")
+            self.db_manager.execute_query(
+                "CREATE INDEX IF NOT EXISTS idx_history_session_timestamp ON history(session_id, timestamp DESC)",
+                fetch_mode='none'
+            )
+            logger.info("Composite session+timestamp index ensured")
+            
             # Auto-cleanup old history entries (older than 90 days)
             logger.info("Running automatic cleanup of old history entries")
             try:
