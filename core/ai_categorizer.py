@@ -100,6 +100,75 @@ class LRUCache:
         }
 
 
+class ContentCache:
+    """Cache for textract-extracted content to avoid repeated slow processing.
+    
+    Uses file hash (based on path, size, and modification time) as cache key.
+    This prevents repeated expensive textract operations on the same files.
+    """
+    def __init__(self, max_size=500):
+        """Initialize content cache with LRU eviction.
+        
+        Args:
+            max_size: Maximum number of content items to cache (default: 500)
+        """
+        self.cache = LRUCache(max_size=max_size)
+    
+    def get_file_hash(self, file_path):
+        """Generate a unique hash for a file based on path, size, and mtime.
+        
+        Args:
+            file_path: Path object for the file
+            
+        Returns:
+            str: MD5 hash of file metadata
+        """
+        try:
+            stat = file_path.stat()
+            hash_input = f"{file_path}_{stat.st_size}_{stat.st_mtime}"
+            return hashlib.md5(hash_input.encode()).hexdigest()
+        except Exception as e:
+            logging.debug(f"Error generating file hash for {file_path}: {e}")
+            return None
+    
+    def get_content(self, file_path):
+        """Retrieve cached content for a file.
+        
+        Args:
+            file_path: Path object for the file
+            
+        Returns:
+            str: Cached content if available, None otherwise
+        """
+        file_hash = self.get_file_hash(file_path)
+        if file_hash is None:
+            return None
+        return self.cache.get(file_hash)
+    
+    def set_content(self, file_path, content):
+        """Cache extracted content for a file.
+        
+        Args:
+            file_path: Path object for the file
+            content: Extracted content to cache
+        """
+        file_hash = self.get_file_hash(file_path)
+        if file_hash is not None:
+            self.cache.put(file_hash, content)
+    
+    def get_stats(self):
+        """Get cache statistics.
+        
+        Returns:
+            dict: Cache statistics including hits, misses, and hit rate
+        """
+        return self.cache.get_stats()
+    
+    def clear(self):
+        """Clear all cached content."""
+        self.cache.clear()
+
+
 class AIFileClassifier:
     """AI-based file classifier using Naive Bayes with content analysis"""
     def __init__(self, model_path=None, classifier_type='naive_bayes'):
@@ -110,6 +179,8 @@ class AIFileClassifier:
         self.categories = []
         # Use LRU cache with automatic eviction to prevent memory leaks
         self.feature_cache = LRUCache(max_size=1000)
+        # Add content cache specifically for textract-extracted content
+        self.content_cache = ContentCache(max_size=500)
         self.last_training_time = None
         self.training_accuracy = None
         self.model_version = 1
@@ -182,14 +253,23 @@ class AIFileClassifier:
         # First try textract if available
         if TEXTRACT_AVAILABLE:
             try:
-                # Use textract to extract text from many file formats
-                content = textract.process(str(file_path), encoding='utf-8')
-                if content:
-                    # Limit content size to avoid memory issues
-                    text_content = content.decode('utf-8')[:5000]
-                    features.append(text_content)
+                # Check content cache first to avoid slow textract processing
+                cached_content = self.content_cache.get_content(file_path)
+                if cached_content is not None:
+                    logging.debug(f"Content cache hit for {file_path}")
+                    features.append(cached_content)
                     content_extracted = True
-                    logging.debug(f"Successfully extracted content with textract from {file_path}")
+                else:
+                    # Use textract to extract text from many file formats
+                    content = textract.process(str(file_path), encoding='utf-8')
+                    if content:
+                        # Limit content size to avoid memory issues
+                        text_content = content.decode('utf-8')[:5000]
+                        # Cache the extracted content for future use
+                        self.content_cache.set_content(file_path, text_content)
+                        features.append(text_content)
+                        content_extracted = True
+                        logging.debug(f"Successfully extracted and cached content with textract from {file_path}")
             except Exception as e:
                 logging.debug(f"Could not extract content with textract from {file_path}: {e}")
         
