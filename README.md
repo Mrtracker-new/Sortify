@@ -20,171 +20,115 @@
 
 ## 🤔 What Is This?
 
-Your Downloads folder is a disaster. Your Desktop looks like a digital tornado hit it. "New Folder (47)" is mocking you.
+Your Downloads folder is a disaster zone. "New Folder (47)" is mocking you. Finding that one receipt from 2023 is a quest.
 
-**Sortify** is Marie Kondo for your computer (but less judgmental). It's a smart file organizer that:
-- Actually **understands** your files (not just "ends in .jpg = image")
-- Uses **AI** to categorize stuff intelligently
-- **Watches folders** and sorts automatically
-- Speaks **plain English** - just tell it what to do
-- Has a **time machine** for when you mess up
+**Sortify** is your digital butler. It's a smart file organizer that uses **Local AI** to actually understand what your files are—not just "oh look, a .pdf".
+
+- 🧠 **Smart & Private**: Uses **Sentence Transformers** directly on your PC. No data leaves your machine.
+- 👁️ **Visual Intelligence**: Detects screenshots, documents, and even **AI-generated images** (Midjourney, ChatGPT, etc.).
+- 🧹 **Social Media Tamer**: Automatically sorts those chaotic WhatsApp, Telegram, and Instagram filenames.
+- 🛡️ **Safe & Sound**: Full **Undo** support and crash recovery. If it breaks, it cleans up after itself.
 
 ---
 
 ## ✨ Features
 
-### 🎯 Core Stuff
-- **🔄 Auto-Sort** - Watches folders, sorts new files instantly
-- **↩️ Full Undo/Redo** - Undo last action, entire sessions, or cherry-pick specific files
-- **👀 Preview Mode** - See exactly what happens before files move
-- **🛑 Cancel Button** - Changed your mind? Hit cancel mid-operation
-- **🖱️ Drag & Drop** - Works exactly like you think
-- **💬 Natural Language** - "Move all PDFs older than 30 days to Archive" ← it gets this
+### 🧠 The Big Brain Stuff (AI)
+- **Semantic Sorting** - Uses `all-MiniLM-L6-v2` to understand file context (e.g., invoices vs. recipes).
+- **Privacy First** - Models run **locally**. No cloud uploads. Your data stays yours.
+- **AI Image Detector** - Spots images made by DALL-E, Midjourney, or Stable Diffusion.
+- **Smart Text Extraction** - Reads inside PDFs, Docs, and Images (OCR capable) to categorize correctly.
 
-### 🧠 Smart Features
-- **AI Categorization** - Reads file contents, not just extensions
-- **Image Analysis** - Detects faces, screenshots, scanned docs
-- **Social Media Sorting** - WhatsApp, Instagram, Telegram, etc. auto-sorted
-- **Duplicate Finder** - Find and delete duplicate files safely
-- **Session Management** - Groups operations for easy bulk undo
+### 🛡️ The Safety Stuff
+- **Undo/Redo** - Didn't mean to move that? One click fixes it.
+- **Dry Run** - Preview exactly what will happen *before* it happens.
+- **Conflict Handling** - Handles duplicates and collision gracefully.
+- **Resilience** - Tracks extraction failures so you know if something wasn't read correctly.
 
-### 🔒 Reliability
-- **Database Protection** - Triple-layer safety (even survives power loss)
-- **Thread Safety** - No more crashes or database locks
-- **Clean Exits** - Proper cleanup even when task-manager-murdered
-- **Memory Management** - Zero leaks, background threads handled properly
+### ⚡ The "Just Works" Stuff
+- **Auto-Watch** - Set it to watch your Downloads folder and forget it exists.
+- **Natural Language** - Type "Move all old screenshots to Trash" and it obeys.
+- **Social Media Sorting** - Knows that `VID-2024...` belongs in "WhatsApp Video".
 
 ---
 
 ## 🚀 Quick Start
 
 ### Requirements
-- Python 3.8+ or Windows/macOS
-- 4GB RAM (8GB for AI features)
-- 150MB disk space
+- Python 3.8+ (Windows/macOS/Linux)
+- 4GB RAM (8GB recommended for AI features)
+- ~500MB disk space (for AI models)
 
 ### Installation
 
 **Option 1: Windows Installer** (Easiest)
 1. Download from [Releases](https://github.com/Mrtracker-new/Sortify/releases)
-2. Run installer
-3. Find in Start menu
+2. Run it. (Ignore Windows Defender properly complaining about us being unsigned/broke).
 
-> Windows might complain about "unknown publisher" - we're just small and broke, not malicious.
-
-**Option 2: From Source**
+**Option 2: From Source** (For the techies)
 ```bash
 git clone https://github.com/Mrtracker-new/Sortify.git
 cd Sortify
 python -m venv venv
-source venv/bin/activate  # Linux/Mac
-venv\Scripts\activate     # Windows
+# Windows:
+venv\Scripts\activate
+# Linux/Mac:
+source venv/bin/activate
+
 pip install -r requirements.txt
 python main.py
-```
-
-**Option 3: CLI Mode** (For automation nerds)
-```bash
-# Preview first (dry run)
-python main.py --dry-run --source "C:\Downloads" --organize
-
-# Do it for real  
-python main.py --yes --source "C:\Downloads" --organize
 ```
 
 ---
 
 ## 💡 How to Use
 
-### GUI Mode (Point and Click)
+### 🖥️ GUI Mode
+1. **Drag & Drop** files or pick a folder.
+2. Click **"Organize Files"**.
+3. Review the **Preview** (we insist!).
+4. Hit **"Go"**.
 
-**Quick Start:**
-1. Launch Sortify
-2. Drag files into the window OR click "Select Files"
-3. Enable "Preview Mode" to see what happens (recommended first time)
-4. Click "Organize Files"
-5. Review preview → Click "Continue"
+To enable **Auto-Sort**, just toggle the switch in the toolbar and pick a folder to watch.
 
-**Auto-Sort (Set and Forget):**
-1. Click "Auto-Sort" toggle in toolbar
-2. Select folder to watch
-3. Choose destination
-4. New files auto-organize instantly
-
-**Undo Mistakes:**
-- **Last action**: Click "Undo Last Action" in toolbar
-- **Entire session**: History tab → Sessions → Select → "Undo"
-- **Specific files**: History tab → Select operations → "Undo Selected"
-
-**Natural Language:**
-1. Go to Commands tab
-2. Type: "Move all PDFs to Archive folder"
-3. Hit Execute
-
-### CLI Mode (For Scripts)
+### 💻 CLI Mode (For Automation)
+Want to run it on a server or cron job? We got you.
 
 ```bash
-# Dry run (see what would happen)
-python main.py --dry-run --source "/path/to/folder" --organize
+# Preview what would happen (Dry Run) - SAFE
+python main.py --dry-run --source "C:\Downloads" --organize
 
-# Auto-confirm everything
-python main.py --yes --source "/path/to/folder" --organize
-
-# Custom destination
-python main.py --source "/downloads" --dest "/organized" --folder "MyFiles" --organize
+# Actually do it (Auto-confirm) - YOLO
+python main.py --yes --source "C:\Downloads" --organize
 ```
 
 ---
 
 ## ❓ Troubleshooting
 
-**Won't open?**
-- Check Python version: `python --version` (need 3.8+)
-- Reinstall dependencies: `pip install -r requirements.txt`
-- Windows DLL errors? Install [Visual C++ Redistributables](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-
-**Not sorting files?**
-- Check folder permissions (can you create files there?)
-- File in use by another program? Close it
-- Check if file type is supported
-
-**AI seems dumb?**
-- First run needs internet to download models
-- Need 4GB+ RAM for AI features
-- Try restarting the app
-
-**Windows freaking out?**
-- Add Sortify to Windows Defender exclusions
-- We're not malware, Windows just hates unsigned software
+- **AI Model Downloading...**: The first run might take a minute to download the Sentence Transformer model (~80MB). It's a one-time thing.
+- **Textract Errors**: If some PDFs aren't reading, install `poppler` (check the docs).
+- **Windows Warnings**: Yes, we know trying to run unsigned code scares Windows. Add an exclusion if it blocks us.
 
 ---
 
 ## 👥 Contributing
-
-Found a bug? Got an idea? Want to help?
+Found a bug? Want to add a feature?
 - 🐛 [Report bugs](https://github.com/Mrtracker-new/Sortify/issues)
-- 💡 [Share ideas](https://github.com/Mrtracker-new/Sortify/discussions)
-- 🔧 Submit pull requests
-- ⭐ Star the repo (it's free and makes us happy)
+- ⭐ Star the repo (it validates our existence)
 
 ---
 
 ## 📄 License
-
-MIT License - do whatever you want, just don't sue us. See [LICENSE](LICENSE) for legal stuff.
+MIT License. Do whatever, just don't blame us if you lose your homework (but you won't, because: Undo).
 
 ---
 
 <div align="center">
 
-👤 **Made by**: Rolan Lobo  
-📧 **Email**: [rolanlobo901@gmail.com](mailto:rolanlobo901@gmail.com)  
-🐞 **Report Bugs**: [GitHub Issues](https://github.com/Mrtracker-new/Sortify/issues)
+👤 **Made by**: Rolan Lobo
+📧 **Email**: [rolanlobo901@gmail.com](mailto:rolanlobo901@gmail.com)
 
----
-
-*If this saved you from digital chaos, star the repo. Stars are free and we're broke.*
-
-*Made with ❤️, ☕, and way too much Stack Overflow*
+*Made with ❤️, ☕, and local AI.*
 
 </div>
