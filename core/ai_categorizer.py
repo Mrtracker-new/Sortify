@@ -539,8 +539,7 @@ class AIFileClassifier:
                   or None if model is not trained
         """
         if not self.trained:
-            logging.warning("AI classifier not trained yet")
-            return None
+            raise ValueError("AI classifier must be trained before prediction. Call train() first.")
         
         # Check if file exists
         if not Path(file_path).exists():
