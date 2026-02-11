@@ -1,4 +1,3 @@
-import spacy
 import os
 from pathlib import Path
 import mimetypes
@@ -7,6 +6,19 @@ import importlib.util
 import logging
 
 logger = logging.getLogger('Sortify')
+
+# Try to import spacy, but make it optional
+# This prevents crashes if PyTorch/spaCy dependencies aren't available
+try:
+    import spacy
+    import spacy.util
+    SPACY_AVAILABLE = True
+except ImportError:
+    SPACY_AVAILABLE = False
+    logger.warning("spacy module not found. AI categorization will be limited to pattern matching.")
+except Exception as e:
+    SPACY_AVAILABLE = False
+    logger.warning(f"Error importing spacy: {e}. AI categorization will be limited to pattern matching.")
 
 class FileCategorizationAI:
     def __init__(self, nlp=None):
@@ -85,8 +97,8 @@ class FileCategorizationAI:
             }
         }
         
-        # Only try to load spaCy if not provided and not already loaded
-        if self.nlp is None:
+        # Only try to load spaCy if not provided and spaCy is available
+        if self.nlp is None and SPACY_AVAILABLE:
             try:
                 logger.info("Attempting to load spaCy model")
                 self.nlp = spacy.load('en_core_web_sm')
@@ -100,6 +112,9 @@ class FileCategorizationAI:
                 logger.warning(f"Unexpected error loading spaCy: {e}")
                 logger.info("Continuing with basic pattern-based categorization")
                 self.ai_enabled = False
+        elif self.nlp is None and not SPACY_AVAILABLE:
+            logger.info("spaCy not available - using basic pattern-based categorization")
+            self.ai_enabled = False
     
     def set_nlp_model(self, nlp):
         """
