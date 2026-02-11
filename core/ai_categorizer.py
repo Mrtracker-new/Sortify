@@ -30,6 +30,16 @@ try:
 except ImportError:
     logging.warning("sentence-transformers module not found. Semantic classification will fall back to TF-IDF.")
     SENTENCE_TRANSFORMERS_AVAILABLE = False
+except OSError as e:
+    # Catch DLL loading errors from PyTorch dependencies
+    logging.warning(f"sentence-transformers dependencies failed to load (DLL error): {e}")
+    logging.warning("This is often caused by missing Visual C++ Redistributables.")
+    logging.warning("Semantic classification will fall back to TF-IDF.")
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
+except Exception as e:
+    logging.warning(f"Unexpected error importing sentence-transformers: {e}")
+    logging.warning("Semantic classification will fall back to TF-IDF.")
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 
 class LRUCache:
