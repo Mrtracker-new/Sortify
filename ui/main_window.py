@@ -121,9 +121,15 @@ class ModelLoaderThread(QThread):
                 self.progress.emit("spaCy model loaded")
                 
             except ImportError as e:
-                logger.warning(f"spaCy model 'en_core_web_sm' not found: {e}")
+                logger.warning(f"spaCy import failed: {e}")
                 logger.info("Application will use basic pattern-based categorization")
-                self.progress.emit("spaCy model not available - using basic mode")
+                self.progress.emit("spaCy not available - using basic mode")
+            except OSError as e:
+                # This catches DLL loading errors from PyTorch/thinc dependencies
+                logger.warning(f"spaCy dependencies failed to load (DLL error): {e}")
+                logger.info("This is often caused by missing Visual C++ Redistributables")
+                logger.info("Application will use basic pattern-based categorization")
+                self.progress.emit("spaCy unavailable (DLL error) - using basic mode")
             except Exception as e:
                 logger.warning(f"Error loading spaCy: {e}")
                 logger.info("Application will use basic pattern-based categorization")
