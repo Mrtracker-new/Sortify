@@ -6,6 +6,7 @@ import hashlib
 import numpy as np
 from pathlib import Path
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from sklearn.feature_extraction.text import TfidfVectorizer  # Changed from CountVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.ensemble import RandomForestClassifier
@@ -40,6 +41,32 @@ except Exception as e:
     logging.warning(f"Unexpected error importing sentence-transformers: {e}")
     logging.warning("Semantic classification will fall back to TF-IDF.")
     SENTENCE_TRANSFORMERS_AVAILABLE = False
+
+
+def _run_with_timeout(func, args=(), kwargs=None, timeout_seconds=10):
+    """Execute a function with a timeout limit.
+    
+    Args:
+        func: Function to execute
+        args: Positional arguments for the function
+        kwargs: Keyword arguments for the function
+        timeout_seconds: Maximum time allowed for execution
+        
+    Returns:
+        The function's return value if successful
+        
+    Raises:
+        TimeoutError: If function execution exceeds timeout_seconds
+    """
+    if kwargs is None:
+        kwargs = {}
+    
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout_seconds)
+        except FuturesTimeoutError:
+            raise TimeoutError(f"Function {func.__name__} exceeded timeout of {timeout_seconds} seconds")
 
 
 class LRUCache:
@@ -343,7 +370,7 @@ class SentenceTransformerClassifier:
 
 class AIFileClassifier:
     """AI-based file classifier using Naive Bayes with content analysis"""
-    def __init__(self, model_path=None, classifier_type='naive_bayes'):
+    def __init__(self, model_path=None, classifier_type='naive_bayes', max_file_size_mb=100, textract_timeout_seconds=10):
         # Create a pipeline with improved vectorizer and classifier
         self.classifier_type = classifier_type
         self._create_pipeline()
@@ -356,6 +383,11 @@ class AIFileClassifier:
         self.last_training_time = None
         self.training_accuracy = None
         self.model_version = 1
+        
+        # Configuration for textract processing safety
+        self.max_file_size_mb = max_file_size_mb
+        self.textract_timeout_seconds = textract_timeout_seconds
+        
         # Track extraction failures to warn users about degraded categorization
         self.extraction_failures = []  # List of files where content extraction failed
         self.extraction_warnings = {}  # Dict mapping file paths to warning messages
@@ -448,23 +480,59 @@ class AIFileClassifier:
                     features.append(cached_content)
                     content_extracted = True
                 else:
-                    # Use textract to extract text from many file formats
-                    content = textract.process(str(file_path), encoding='utf-8')
-                    if content:
-                        # Limit content size to avoid memory issues
-                        text_content = content.decode('utf-8')[:5000]
-                        # Cache the extracted content for future use
-                        self.content_cache.set_content(file_path, text_content)
-                        features.append(text_content)
-                        content_extracted = True
-                        logging.debug(f"Successfully extracted and cached content with textract from {file_path}")
+                    # SAFETY CHECK: Check file size before processing
+                    file_size_bytes = file_path.stat().st_size
+                    file_size_mb = file_size_bytes / (1024 * 1024)  # Convert to MB
+                    
+                    if file_size_mb > self.max_file_size_mb:
+                        # File too large - skip textract processing
+                        logging.info(f"Skipping textract for {file_path}: file size ({file_size_mb:.1f}MB) exceeds limit ({self.max_file_size_mb}MB)")
+                        warning_msg = f"File too large ({file_size_mb:.1f}MB) - categorization based on filename only"
+                        self.extraction_warnings[str(file_path)] = warning_msg
+                        failure_info = {
+                            'file': str(file_path),
+                            'error': f'File size {file_size_mb:.1f}MB exceeds limit',
+                            'timestamp': datetime.now().isoformat(),
+                            'reason': 'size_limit'
+                        }
+                        self.extraction_failures.append(failure_info)
+                    else:
+                        # File size OK - process with timeout protection
+                        try:
+                            # Use textract to extract text with timeout protection
+                            content = _run_with_timeout(
+                                textract.process,
+                                args=(str(file_path),),
+                                kwargs={'encoding': 'utf-8'},
+                                timeout_seconds=self.textract_timeout_seconds
+                            )
+                            if content:
+                                # Limit content size to avoid memory issues
+                                text_content = content.decode('utf-8')[:5000]
+                                # Cache the extracted content for future use
+                                self.content_cache.set_content(file_path, text_content)
+                                features.append(text_content)
+                                content_extracted = True
+                                logging.debug(f"Successfully extracted and cached content with textract from {file_path}")
+                        except TimeoutError as e:
+                            logging.warning(f"Textract processing timeout for {file_path}: {e}")
+                            warning_msg = f"Processing timeout ({self.textract_timeout_seconds}s) - categorization based on filename only"
+                            self.extraction_warnings[str(file_path)] = warning_msg
+                            failure_info = {
+                                'file': str(file_path),
+                                'error': str(e),
+                                'timestamp': datetime.now().isoformat(),
+                                'reason': 'timeout'
+                            }
+                            self.extraction_failures.append(failure_info)
             except Exception as e:
                 logging.warning(f"Textract extraction failed for {file_path}: {e}")
                 # Track this failure for user notification
                 failure_info = {
                     'file': str(file_path),
                     'error': str(e),
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now().isoformat(),
+                    'reason': 'extraction_error'
                 }
                 self.extraction_failures.append(failure_info)
                 self.extraction_warnings[str(file_path)] = "Content extraction failed - categorization based on filename only"
