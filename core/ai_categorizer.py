@@ -755,8 +755,10 @@ class AIFileClassifier:
             return False
             
         try:
-            # Create directory if it doesn't exist
-            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            # Create directory if it doesn't exist (only if model_path has a directory component)
+            model_dir = os.path.dirname(model_path)
+            if model_dir:  # Only create dir if path has a directory component
+                os.makedirs(model_dir, exist_ok=True)
             
             # Save model and categories
             with open(model_path, 'wb') as f:
