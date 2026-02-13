@@ -934,25 +934,65 @@ class AIFileClassifier:
         categories = []
         category_counts = {}
         
+        # Track skipped files with detailed reasons
+        skipped_files = {
+            'broken_symlinks': [],
+            'special_files': [],
+            'access_errors': [],
+            'other': []
+        }
+        total_scanned = 0
+        
         if recursive:
             # Recursively walk all files and derive labels from relative parent path
             for file_path in directory_path.rglob('*'):
-                if file_path.is_file():
-                    try:
-                        rel_parent = file_path.parent.relative_to(directory_path)
-                    except ValueError:
-                        # Should not happen, but guard anyway
+                total_scanned += 1
+                
+                # Validate file type and accessibility
+                try:
+                    # Check for broken symlinks (symlink that points to non-existent target)
+                    if file_path.is_symlink() and not file_path.exists():
+                        logging.debug(f"Skipping broken symlink: {file_path}")
+                        skipped_files['broken_symlinks'].append(str(file_path))
                         continue
-                    # Ignore files that are directly under the root (no category)
-                    if rel_parent == Path('.') or str(rel_parent).strip() == '':
+                    
+                    # Check if it's a regular file (not directory, device, pipe, socket, etc.)
+                    if not file_path.is_file():
+                        # It's either a directory or special file
+                        if not file_path.is_dir():
+                            # It's a special file (device, pipe, socket, etc.)
+                            logging.debug(f"Skipping special file: {file_path}")
+                            skipped_files['special_files'].append(str(file_path))
+                        # Directories are expected, don't log them as skipped
                         continue
-                    parts = rel_parent.parts
-                    if label_depth is not None and isinstance(label_depth, int) and label_depth > 0:
-                        parts = parts[:label_depth]
-                    category = '/'.join(parts)
-                    file_paths.append(str(file_path))
-                    categories.append(category)
-                    category_counts[category] = category_counts.get(category, 0) + 1
+                        
+                except PermissionError as e:
+                    logging.debug(f"Skipping file due to permission error: {file_path} - {e}")
+                    skipped_files['access_errors'].append(str(file_path))
+                    continue
+                except Exception as e:
+                    logging.debug(f"Skipping file due to unexpected error: {file_path} - {e}")
+                    skipped_files['other'].append(str(file_path))
+                    continue
+                
+                # File is valid, extract category
+                try:
+                    rel_parent = file_path.parent.relative_to(directory_path)
+                except ValueError:
+                    # Should not happen, but guard anyway
+                    continue
+                    
+                # Ignore files that are directly under the root (no category)
+                if rel_parent == Path('.') or str(rel_parent).strip() == '':
+                    continue
+                    
+                parts = rel_parent.parts
+                if label_depth is not None and isinstance(label_depth, int) and label_depth > 0:
+                    parts = parts[:label_depth]
+                category = '/'.join(parts)
+                file_paths.append(str(file_path))
+                categories.append(category)
+                category_counts[category] = category_counts.get(category, 0) + 1
         else:
             # Backward-compatible non-recursive behavior (immediate subfolders only)
             for category_dir in directory_path.iterdir():
@@ -960,15 +1000,68 @@ class AIFileClassifier:
                     category = category_dir.name
                     category_files = []
                     for file_path in category_dir.glob('*'):
-                        if file_path.is_file():
-                            file_paths.append(str(file_path))
-                            categories.append(category)
-                            category_files.append(str(file_path))
+                        total_scanned += 1
+                        
+                        # Validate file type and accessibility
+                        try:
+                            # Check for broken symlinks
+                            if file_path.is_symlink() and not file_path.exists():
+                                logging.debug(f"Skipping broken symlink: {file_path}")
+                                skipped_files['broken_symlinks'].append(str(file_path))
+                                continue
+                            
+                            # Check if it's a regular file
+                            if not file_path.is_file():
+                                if not file_path.is_dir():
+                                    logging.debug(f"Skipping special file: {file_path}")
+                                    skipped_files['special_files'].append(str(file_path))
+                                continue
+                                
+                        except PermissionError as e:
+                            logging.debug(f"Skipping file due to permission error: {file_path} - {e}")
+                            skipped_files['access_errors'].append(str(file_path))
+                            continue
+                        except Exception as e:
+                            logging.debug(f"Skipping file due to unexpected error: {file_path} - {e}")
+                            skipped_files['other'].append(str(file_path))
+                            continue
+                        
+                        file_paths.append(str(file_path))
+                        categories.append(category)
+                        category_files.append(str(file_path))
                     category_counts[category] = len(category_files)
+        
+        # Calculate total skipped files
+        total_skipped = sum(len(files) for files in skipped_files.values())
+        
+        # Warn user if files were skipped
+        if total_skipped > 0:
+            skipped_breakdown = []
+            if skipped_files['broken_symlinks']:
+                skipped_breakdown.append(f"{len(skipped_files['broken_symlinks'])} broken symlinks")
+            if skipped_files['special_files']:
+                skipped_breakdown.append(f"{len(skipped_files['special_files'])} special files")
+            if skipped_files['access_errors']:
+                skipped_breakdown.append(f"{len(skipped_files['access_errors'])} permission errors")
+            if skipped_files['other']:
+                skipped_breakdown.append(f"{len(skipped_files['other'])} other errors")
+            
+            breakdown_str = ", ".join(skipped_breakdown)
+            logging.warning(
+                f"Training data incomplete: {total_skipped} file(s) skipped out of {total_scanned} scanned "
+                f"({breakdown_str}). Model accuracy may be degraded. "
+                f"Please review skipped files in training metrics."
+            )
         
         if not file_paths:
             logging.warning(f"No training files found in {directory_path}")
-            return {'error': 'No training files found', 'success': False}
+            return {
+                'error': 'No training files found',
+                'success': False,
+                'skipped_files': skipped_files,
+                'total_skipped': total_skipped,
+                'total_scanned': total_scanned
+            }
         
         # Check if we have enough samples per category
         insufficient_categories = [cat for cat, count in category_counts.items() if count < min_samples_per_category]
@@ -979,7 +1072,10 @@ class AIFileClassifier:
                 'error': f"Insufficient samples for {len(insufficient_categories)} categories",
                 'insufficient_categories': insufficient_categories,
                 'category_counts': category_counts,
-                'success': False
+                'success': False,
+                'skipped_files': skipped_files,
+                'total_skipped': total_skipped,
+                'total_scanned': total_scanned
             }
             
         # Train the model with the collected files
@@ -991,5 +1087,11 @@ class AIFileClassifier:
         # Add category distribution information to metrics
         metrics['category_distribution'] = category_counts
         metrics['success'] = True
+        
+        # Add skipped file information to metrics
+        metrics['skipped_files'] = skipped_files
+        metrics['total_skipped'] = total_skipped
+        metrics['total_scanned'] = total_scanned
+        metrics['valid_files_processed'] = len(file_paths)
         
         return metrics
