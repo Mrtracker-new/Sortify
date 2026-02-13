@@ -150,6 +150,49 @@ def test_read_file_sync_helper():
             return False
 
 
+def test_read_file_sync_timeout_enforcement():
+    """Test that _read_file_sync enforces timeout and raises TimeoutError"""
+    print("\n[Test 5] Timeout enforcement in _read_file_sync...")
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_file = Path(tmpdir) / "test.txt"
+        test_file.write_text("test content")
+        
+        # Mock open() to simulate a hung file handle
+        original_open = __builtins__.open
+        
+        def slow_open(*args, **kwargs):
+            """Simulate hung file handle by sleeping forever"""
+            time.sleep(10)  # Sleep longer than timeout
+            return original_open(*args, **kwargs)
+        
+        # Patch open globally
+        __builtins__.open = slow_open
+        
+        try:
+            start = time.time()
+            
+            # This should timeout after 0.5 seconds
+            try:
+                _read_file_sync(test_file, timeout=0.5)
+                elapsed = time.time() - start
+                print(f"  [FAIL] Function did not timeout (elapsed: {elapsed:.2f}s)")
+                return False
+            except TimeoutError as e:
+                elapsed = time.time() - start
+                # Should timeout around 0.5s (allow small margin for overhead)
+                if 0.4 <= elapsed <= 1.0:
+                    print(f"  [PASS] Timeout enforced correctly (elapsed: {elapsed:.2f}s)")
+                    print(f"  [INFO] Error message: {str(e)}")
+                    return True
+                else:
+                    print(f"  [FAIL] Timeout took unexpected duration: {elapsed:.2f}s")
+                    return False
+        finally:
+            # Restore original open
+            __builtins__.open = original_open
+
+
 def main():
     """Run all tests"""
     print("=" * 70)
@@ -160,7 +203,8 @@ def main():
         test_categorize_file_text_detection,
         test_categorize_file_timeout,
         test_categorize_file_thread_safety,
-        test_read_file_sync_helper
+        test_read_file_sync_helper,
+        test_read_file_sync_timeout_enforcement
     ]
     
     results = []
