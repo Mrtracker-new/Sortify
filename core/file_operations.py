@@ -17,6 +17,54 @@ logger = logging.getLogger('Sortify.FileOperations')
 _io_executor = None
 _executor_lock = threading.Lock()
 
+def _timeout_wrapper(func, args=(), kwargs=None, timeout=5.0, default=None):
+    """
+    Execute a function with a timeout using threading.
+    
+    This is a Windows-compatible timeout wrapper since signal.alarm() is not available.
+    If the function doesn't complete within the timeout, raises TimeoutError.
+    
+    Args:
+        func: Function to execute
+        args: Tuple of positional arguments
+        kwargs: Dict of keyword arguments
+        timeout: Maximum time to wait in seconds (default: 5.0)
+        default: Default value to return on timeout (if None, raises TimeoutError)
+    
+    Returns:
+        Result of the function call
+        
+    Raises:
+        TimeoutError: If function execution exceeds timeout
+    """
+    if kwargs is None:
+        kwargs = {}
+    
+    result = [default]  # Mutable container to store result
+    exception = [None]  # Store any exception that occurs
+    
+    def target():
+        try:
+            result[0] = func(*args, **kwargs)
+        except Exception as e:
+            exception[0] = e
+    
+    thread = threading.Thread(target=target)
+    thread.daemon = True
+    thread.start()
+    thread.join(timeout)
+    
+    if thread.is_alive():
+        # Thread is still running, timeout occurred
+        # Note: We can't forcefully kill the thread in Python, but we can return/raise
+        # The thread will eventually complete, but we don't wait for it
+        raise TimeoutError(f"Operation timed out after {timeout} seconds")
+    
+    if exception[0] is not None:
+        raise exception[0]
+    
+    return result[0]
+
 def get_io_executor():
     """Get or create the shared I/O executor for non-blocking file operations"""
     global _io_executor
@@ -30,18 +78,41 @@ def get_io_executor():
                 )
     return _io_executor
 
-def _read_file_sync(file_path, max_chars=1000):
+def _read_file_sync(file_path, max_chars=1000, timeout=5.0):
     """
-    Synchronous file reading helper - runs in thread pool
+    Synchronous file reading helper with timeout enforcement - runs in thread pool
+    
+    This function prevents indefinite blocking when reading from:
+    - Disconnected network mounts
+    - Slow network drives  
+    - Hung file handles
+    - Unresponsive disks
     
     Args:
         file_path: Path object to read
-        max_chars: Maximum characters to read
+        max_chars: Maximum characters to read (default: 1000)
+        timeout: Maximum time to wait for file read in seconds (default: 5.0)
+        
     Returns:
         str: File content (up to max_chars)
+        
+    Raises:
+        TimeoutError: If file read exceeds timeout duration
+        OSError: If file cannot be opened or read
+        UnicodeDecodeError: If file content cannot be decoded as UTF-8
     """
-    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-        return f.read(max_chars)
+    def _do_read():
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            return f.read(max_chars)
+    
+    try:
+        return _timeout_wrapper(_do_read, timeout=timeout)
+    except TimeoutError:
+        # Re-raise with more context about the specific file
+        raise TimeoutError(
+            f"Timeout reading file '{file_path.name}' after {timeout} seconds. "
+            f"The file may be on a slow network drive or the disk may be unresponsive."
+        )
 
 
 class FileOperations:
@@ -1111,11 +1182,13 @@ class FileOperations:
                 elif not self._is_binary_file(file_path):
                     # PERFORMANCE FIX: Use thread pool with timeout to prevent UI freezes
                     executor = get_io_executor()
-                    future = executor.submit(_read_file_sync, file_path, 1000)
+                    # Pass timeout to _read_file_sync for internal timeout enforcement
+                    # Also keep future.result timeout as defense-in-depth
+                    future = executor.submit(_read_file_sync, file_path, 1000, timeout=2.0)
                     
                     try:
-                        # Wait max 2 seconds for file read (prevents hangs on network drives)
-                        content = future.result(timeout=2.0)
+                        # Wait max 3 seconds for file read (includes overhead + internal 2s timeout)
+                        content = future.result(timeout=3.0)
                         
                         # Check for code patterns
                         if any(pattern in content for pattern in ['def ', 'class ', 'import ', 'function', 'var ', 'const ']):
