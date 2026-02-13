@@ -149,8 +149,9 @@ class LRUCache:
 class ContentCache:
     """Cache for textract-extracted content to avoid repeated slow processing.
     
-    Uses file hash (based on path, size, and modification time) as cache key.
-    This prevents repeated expensive textract operations on the same files.
+    Uses file content hash as cache key (optimized for large files with partial hashing).
+    This prevents repeated expensive textract operations and eliminates race conditions
+    from mtime-based caching.
     """
     def __init__(self, max_size=500):
         """Initialize content cache with LRU eviction.
@@ -161,18 +162,41 @@ class ContentCache:
         self.cache = LRUCache(max_size=max_size)
     
     def get_file_hash(self, file_path):
-        """Generate a unique hash for a file based on path, size, and mtime.
+        """Generate a unique hash for a file based on file content.
+        
+        Uses optimized partial hashing for large files to balance performance
+        and uniqueness. Files under 1MB are fully hashed, larger files use
+        first 64KB + last 64KB + file size.
         
         Args:
             file_path: Path object for the file
             
         Returns:
-            str: MD5 hash of file metadata
+            str: MD5 hash of file content
         """
         try:
             stat = file_path.stat()
-            hash_input = f"{file_path}_{stat.st_size}_{stat.st_mtime}"
-            return hashlib.md5(hash_input.encode()).hexdigest()
+            file_size = stat.st_size
+            
+            # For small files (<1MB), hash the entire content
+            if file_size < 1024 * 1024:
+                with open(file_path, 'rb') as f:
+                    content = f.read()
+                    return hashlib.md5(content).hexdigest()
+            
+            # For large files, hash: first 64KB + last 64KB + size
+            # This is fast and provides good uniqueness
+            hash_obj = hashlib.md5()
+            with open(file_path, 'rb') as f:
+                # First chunk
+                hash_obj.update(f.read(65536))
+                # Seek to end and read last chunk
+                f.seek(max(0, file_size - 65536))
+                hash_obj.update(f.read(65536))
+                # Include file size
+                hash_obj.update(str(file_size).encode())
+            
+            return hash_obj.hexdigest()
         except Exception as e:
             logging.debug(f"Error generating file hash for {file_path}: {e}")
             return None
@@ -422,6 +446,40 @@ class AIFileClassifier:
             ])
 
     
+    def _compute_file_hash(self, file_path):
+        """Compute content hash for a file (optimized for large files).
+        
+        Uses the same logic as ContentCache.get_file_hash() to ensure
+        consistent cache keys across the classifier.
+        
+        Args:
+            file_path: Path object for the file
+            
+        Returns:
+            str: MD5 hash of file content, or None on error
+        """
+        try:
+            stat = file_path.stat()
+            file_size = stat.st_size
+            
+            # For small files (<1MB), hash entire content
+            if file_size < 1024 * 1024:
+                with open(file_path, 'rb') as f:
+                    return hashlib.md5(f.read()).hexdigest()
+            
+            # For large files, hash first 64KB + last 64KB + size
+            hash_obj = hashlib.md5()
+            with open(file_path, 'rb') as f:
+                hash_obj.update(f.read(65536))
+                f.seek(max(0, file_size - 65536))
+                hash_obj.update(f.read(65536))
+                hash_obj.update(str(file_size).encode())
+            
+            return hash_obj.hexdigest()
+        except Exception as e:
+            logging.debug(f"Error computing file hash for {file_path}: {e}")
+            return None
+    
     def extract_features(self, file_path):
         """Extract features from a file for classification including content analysis
         
@@ -433,17 +491,19 @@ class AIFileClassifier:
         """
         file_path = Path(file_path)
         
-        # Create cache key using file path and modification time (if file exists)
+        # Create cache key using file path and content hash (if file exists)
+        # This eliminates race conditions from mtime-based caching
         try:
             if file_path.exists():
-                mtime = file_path.stat().st_mtime
-                cache_key = f"{file_path}:{mtime}"
+                file_hash = self._compute_file_hash(file_path)
+                cache_key = f"{file_path}:{file_hash}" if file_hash else None
                 
                 # Check cache first
-                cached_features = self.feature_cache.get(cache_key)
-                if cached_features is not None:
-                    logging.debug(f"Cache hit for {file_path}")
-                    return cached_features
+                if cache_key is not None:
+                    cached_features = self.feature_cache.get(cache_key)
+                    if cached_features is not None:
+                        logging.debug(f"Cache hit for {file_path}")
+                        return cached_features
             else:
                 cache_key = None
         except Exception as e:
