@@ -2,6 +2,7 @@ import os
 import shutil
 from pathlib import Path
 from datetime import datetime
+from contextlib import contextmanager
 from PyQt6.QtWidgets import QMessageBox, QInputDialog, QFileDialog
 from .history import HistoryManager
 from .safety_manager import SafetyManager
@@ -336,6 +337,7 @@ class FileOperations:
         safety_config['skip_confirmations'] = skip_confirmations
         self.safety = SafetyManager(config=safety_config)
         self.session_active = False
+        self._session_depth = 0  # FL-012 FIX: Track session depth to detect misuse
         
         # Initialize allowed directories for security validation
         self._initialize_allowed_directories(allowed_dirs)
@@ -515,19 +517,117 @@ class FileOperations:
             logger.error(f"Error creating category folders: {e}")
             return False
     
+    
+    @contextmanager
+    def operation_session(self):
+        """
+        FL-012 FIX: Context manager for atomic file operation sessions
+        
+        This ensures that database sessions are always properly opened and closed,
+        even if an exception occurs during operations. This prevents session leaks
+        that would otherwise occur if finalize_operations() is never called.
+        
+        Usage:
+            with file_ops.operation_session():
+                file_ops.move_file(source, dest)
+                file_ops.copy_file(source2, dest2)
+        
+        Raises:
+            RuntimeError: If a session is already active (prevents nested sessions)
+        """
+        if self.session_active:
+            raise RuntimeError(
+                "Cannot start new operation session: A session is already active. "
+                "Ensure the previous session is properly closed before starting a new one. "
+                "This indicates either nested session attempts or a missing finalize_operations() call."
+            )
+        
+        logger.debug("Starting operation session (context manager)")
+        self.history.start_session()
+        self.session_active = True
+        self._session_depth = 1
+        
+        try:
+            yield
+        finally:
+            # Always finalize, even on exception
+            if self.session_active:
+                logger.debug("Finalizing operation session (context manager)")
+                self.history.end_session()
+                self.session_active = False
+                self._session_depth = 0
+                self.safety.cleanup_old_backups()
+    
     def start_operations(self):
-        """Start a new batch of file operations with session tracking"""
-        if not self.session_active:
-            self.history.start_session()
-            self.session_active = True
+        """
+        Start a new batch of file operations with session tracking
+        
+        WARNING: This method is deprecated in favor of the operation_session() context manager.
+        The context manager ensures sessions are always properly closed, even on exceptions.
+        
+        Recommended usage:
+            with file_ops.operation_session():
+                # your operations here
+        
+        Legacy usage (still supported):
+            file_ops.start_operations()
+            try:
+                # operations
+            finally:
+                file_ops.finalize_operations()
+        """
+        if self.session_active:
+            # FL-012 FIX: Detect and warn about double-start without finalize
+            logger.warning(
+                "start_operations() called while session already active. "
+                "This may indicate a session leak or missing finalize_operations() call. "
+                "Current session depth: %d. Consider using operation_session() context manager.",
+                self._session_depth
+            )
+            self._session_depth += 1
+            return  # Don't start a new session, just track the depth
+        
+        logger.debug("Starting operation session (manual)")
+        self.history.start_session()
+        self.session_active = True
+        self._session_depth = 1
     
     def finalize_operations(self):
-        """Finalize the current batch of operations and end session"""
-        if self.session_active:
-            self.history.end_session()
-            self.session_active = False
-            # Clean up old backups if enabled
-            self.safety.cleanup_old_backups()
+        """
+        Finalize the current batch of operations and end session
+        
+        WARNING: This method is deprecated in favor of the operation_session() context manager.
+        The context manager ensures sessions are always properly closed, even on exceptions.
+        
+        This method should always be called after start_operations(), preferably in a
+        try/finally block to ensure it runs even if an exception occurs.
+        """
+        if not self.session_active:
+            # FL-012 FIX: Detect and warn about finalize without start
+            logger.warning(
+                "finalize_operations() called without an active session. "
+                "This indicates a mismatch in start_operations()/finalize_operations() calls."
+            )
+            return
+        
+        if self._session_depth > 1:
+            # FL-012 FIX: Handle nested starts - just decrement depth
+            self._session_depth -= 1
+            logger.warning(
+                "Nested session detected during finalize (depth: %d). "
+                "This indicates multiple start_operations() calls without matching finalize calls. "
+                "Session will remain active until all nested starts are finalized.",
+                self._session_depth
+            )
+            return
+        
+        logger.debug("Finalizing operation session (manual)")
+        self.history.end_session()
+        self.session_active = False
+        self._session_depth = 0
+        # Clean up old backups if enabled
+        self.safety.cleanup_old_backups()
+
 
     def copy_file(self, source_path, category_path):
         """Copy file to appropriate category folder
