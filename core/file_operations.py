@@ -116,6 +116,27 @@ def _read_file_sync(file_path, max_chars=1000, timeout=5.0):
 
 
 class FileOperations:
+    # Security: Blacklist of sensitive directories that should never be accessed
+    # These directories typically contain credentials, keys, or security-critical configuration
+    SENSITIVE_DIRS = {
+        '.ssh',         # SSH keys and configuration
+        '.gnupg',       # GPG keys
+        '.config',      # Application configurations (may contain credentials)
+        '.aws',         # AWS credentials
+        '.azure',       # Azure credentials
+        '.gcp',         # Google Cloud credentials
+        '.kube',        # Kubernetes configuration and credentials
+        '.docker',      # Docker credentials
+        'AppData',      # Windows application data (may contain credentials)
+        '.password',    # Password stores
+        '.cert',        # Certificate stores
+        '.key',         # Private key stores
+        '.gpg',         # GPG alternative location
+        '.local',       # Local application data (may contain sensitive info)
+        '.mozilla',     # Firefox profiles (may contain saved passwords)
+        '.thunderbird', # Thunderbird profiles
+    }
+    
     def setup_organization(self, parent=None, max_attempts=3):
         """
         Prompt user for organization folder details and validate the path using GUI dialogs
@@ -386,7 +407,8 @@ class FileOperations:
             path = Path(path).resolve()
             
             # Check for system/protected files (starting with .)
-            if path.name.startswith('.') and path.name not in ['.txt', '.pdf']:
+            # Note: We no longer make exceptions for .txt or .pdf as those were security holes
+            if path.name.startswith('.'):
                 raise ValueError(
                     f"Cannot perform {operation_type} on hidden/system files: {path.name}"
                 )
@@ -407,6 +429,17 @@ class FileOperations:
                 raise ValueError(
                     f"Path outside allowed directories: {path}\n"
                     f"Allowed directories: {', '.join(str(d) for d in self.allowed_dirs[:2])}"
+                )
+            
+            # FL-008 FIX: Check against sensitive directory blacklist
+            # Even if path is within allowed directories, block access to sensitive subdirectories
+            path_parts = set(path.parts)
+            sensitive_found = path_parts.intersection(self.SENSITIVE_DIRS)
+            if sensitive_found:
+                raise ValueError(
+                    f"Access to sensitive directories is prohibited: {', '.join(sensitive_found)}\n"
+                    f"Cannot perform {operation_type} on path: {path}\n"
+                    f"This is a security restriction to protect credentials and configuration files."
                 )
             
             # Check for Windows system directories
