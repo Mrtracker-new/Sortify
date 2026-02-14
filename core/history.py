@@ -121,7 +121,9 @@ class HistoryManager:
             
             # Initialize thread-safe database manager
             from .database_manager import DatabaseManager
-            self.db_manager = DatabaseManager(self.db_path, timeout=10.0)
+            # Use 60-second timeout to handle large batch operations and concurrent access
+            # (Previous 10s timeout caused "Database is locked" errors during heavy use)
+            self.db_manager = DatabaseManager(self.db_path, timeout=60.0)
             
             # Create a lock for thread safety (for session management, not database)
             self.lock = threading.Lock()
