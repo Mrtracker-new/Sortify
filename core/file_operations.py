@@ -532,23 +532,38 @@ class FileOperations:
                             metadata={'reason': 'identical_content'}
                         )
                     return dest_path  # Return existing path
-                
-                # Different files with same name, rename with counter
-                counter = 1
-                while dest_path.exists():
-                    dest_path = dest_dir / f"{dest_path.stem}_{counter}{dest_path.suffix}"
-                    counter += 1
             
             # DRY-RUN MODE: Only record the operation, don't execute
             if self.dry_run:
                 self.dry_run_manager.add_operation('copy', source_path, dest_path, category_path)
                 return dest_path
             
-            # NORMAL MODE: Execute the operation
+            # NORMAL MODE: Execute the operation with retry loop to handle race conditions
             dest_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(source_path), str(dest_path))
-            self.history.log_operation(str(source_path), str(dest_path), operation_type="copy")
-            return dest_path
+            
+            # FL-009 FIX: Use try/except with retry loop to handle race conditions
+            # Instead of checking exists() then copying, we attempt the copy and handle
+            # FileExistsError by retrying with an incremented counter
+            max_retries = 1000  # Safety limit to prevent infinite loops
+            counter = 0
+            
+            for attempt in range(max_retries):
+                try:
+                    # Attempt to copy the file
+                    shutil.copy2(str(source_path), str(dest_path))
+                    self.history.log_operation(str(source_path), str(dest_path), operation_type="copy")
+                    return dest_path
+                except FileExistsError:
+                    # File was created by another thread between our check and copy
+                    # Increment counter and try with a new name
+                    counter += 1
+                    dest_path = dest_dir / f"{source_path.stem}_{counter}{source_path.suffix}"
+            
+            # If we've exhausted all retries, raise an error
+            raise RuntimeError(
+                f"Failed to copy '{source_path.name}' after {max_retries} attempts. "
+                f"This may indicate a severe concurrency issue or filesystem problem."
+            )
         except PermissionError as e:
             error_msg = (
                 f"Permission denied when copying '{source_path.name}' to '{dest_dir}'.\n\n"
@@ -654,12 +669,6 @@ class FileOperations:
                                 metadata={'reason': 'identical_content'}
                             )
                         return None  # Skip the file
-                
-                # Different files with same name, rename with counter
-                counter = 1
-                while dest_path.exists():
-                    dest_path = dest_dir / f"{dest_path.stem}_{counter}{dest_path.suffix}"
-                    counter += 1
             
             # DRY-RUN MODE: Only record the operation, don't execute
             if self.dry_run:
@@ -678,9 +687,29 @@ class FileOperations:
             # Create destination directory
             dest_dir.mkdir(parents=True, exist_ok=True)
 
-            shutil.move(str(source_path), str(dest_path))
-            self.history.log_operation(str(source_path), str(dest_path), operation_type="move")
-            return dest_path
+            # FL-009 FIX: Use try/except with retry loop to handle race conditions
+            # Instead of checking exists() then moving, we attempt the move and handle
+            # FileExistsError by retrying with an incremented counter
+            max_retries = 1000  # Safety limit to prevent infinite loops
+            counter = 0
+            
+            for attempt in range(max_retries):
+                try:
+                    # Attempt to move the file
+                    shutil.move(str(source_path), str(dest_path))
+                    self.history.log_operation(str(source_path), str(dest_path), operation_type="move")
+                    return dest_path
+                except FileExistsError:
+                    # File was created by another thread between our check and move
+                    # Increment counter and try with a new name
+                    counter += 1
+                    dest_path = dest_dir / f"{source_path.stem}_{counter}{source_path.suffix}"
+            
+            # If we've exhausted all retries, raise an error
+            raise RuntimeError(
+                f"Failed to move '{source_path.name}' after {max_retries} attempts. "
+                f"This may indicate a severe concurrency issue or filesystem problem."
+            )
         except PermissionError as e:
             error_msg = (
                 f"Permission denied when moving '{source_path.name}' to '{dest_dir}'.\n\n"
