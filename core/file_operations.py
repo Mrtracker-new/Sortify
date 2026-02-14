@@ -462,6 +462,44 @@ class FileOperations:
             # Handle path resolution errors
             raise ValueError(f"Invalid path for {operation_type}: {path} - {str(e)}")
 
+    def _is_circular_move(self, source_path, dest_path):
+        """
+        FL-010 FIX: Check if moving source to dest would create a circular move
+        
+        A circular move occurs when trying to move a directory into its own subdirectory.
+        For example: moving "Downloads/A" into "Downloads/A/B" would create a circular reference.
+        
+        Args:
+            source_path (Path): Source path (must be resolved)
+            dest_path (Path): Destination path (must be resolved)
+            
+        Returns:
+            bool: True if this would be a circular move, False otherwise
+        """
+        try:
+            # Resolve both paths to handle symlinks and relative paths
+            source_resolved = source_path.resolve()
+            dest_resolved = dest_path.resolve()
+            
+            # If source is not a directory, it can't cause a circular move
+            if not source_resolved.is_dir():
+                return False
+            
+            # Check if destination is a subdirectory of source
+            # This works by checking if dest_path is relative to source_path
+            try:
+                # If dest is inside source, relative_to will succeed
+                dest_resolved.relative_to(source_resolved)
+                # If we get here, dest is a subdirectory of source - CIRCULAR!
+                return True
+            except ValueError:
+                # dest is not a subdirectory of source - safe
+                return False
+                
+        except (OSError, RuntimeError):
+            # If we can't resolve paths, be conservative and block the operation
+            return True
+
     def create_category_folders(self):
         """Create all category folders"""
         try:
@@ -514,6 +552,14 @@ class FileOperations:
                 dest_dir = self.base_dir / category_path
                 
             dest_path = dest_dir / source_path.name
+            
+            # FL-010 FIX: Check for circular move (directory into its own subdirectory)
+            if self._is_circular_move(source_path, dest_path):
+                raise ValueError(
+                    f"Circular copy detected: Cannot copy '{source_path}' into its own subdirectory '{dest_path}'.\\n\\n"
+                    f"This would create an infinite loop and is not allowed."
+                )
+
 
             # Handle filename conflicts with content-based duplicate detection
             if dest_path.exists():
@@ -637,6 +683,14 @@ class FileOperations:
                 dest_dir = self.base_dir / category_path
                 
             dest_path = dest_dir / source_path.name
+            
+            # FL-010 FIX: Check for circular move (directory into its own subdirectory)
+            if self._is_circular_move(source_path, dest_path):
+                raise ValueError(
+                    f"Circular move detected: Cannot move '{source_path}' into its own subdirectory '{dest_path}'.\\n\\n"
+                    f"This would create an infinite loop and is not allowed."
+                )
+
 
             # Handle filename conflicts with content-based duplicate detection
             if dest_path.exists():
