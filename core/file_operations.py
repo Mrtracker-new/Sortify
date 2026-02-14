@@ -996,7 +996,14 @@ class FileOperations:
 
     def batch_rename(self, file_paths, pattern=None, options=None):
         """
-        Rename multiple files at once
+        FL-011 FIX: Rename multiple files atomically with automatic rollback on failure
+        
+        This function uses a two-phase commit approach:
+        1. VALIDATION PHASE: Pre-validate all operations and calculate new names
+        2. EXECUTION PHASE: Execute all renames, tracking completed operations
+        
+        If ANY rename fails, all completed renames are automatically rolled back
+        to ensure atomicity - either all files are renamed or none are.
         
         Args:
             file_paths (list): List of file paths to rename
@@ -1009,50 +1016,148 @@ class FileOperations:
         
         Returns:
             dict: Mapping of original paths to new paths
+            
+        Raises:
+            ValueError: If validation fails (no changes made)
+            PermissionError/OSError/etc: If execution fails (all changes rolled back)
         """
-        results = {}
+        if not file_paths:
+            return {}
+        
+        # PHASE 1: VALIDATION - Calculate all new names and validate operations
+        # This ensures we detect issues BEFORE making any changes
+        planned_operations = []  # List of (source_path, dest_path, new_name) tuples
+        
+        logger.info(f"FL-011: Starting batch rename validation for {len(file_paths)} files")
         
         try:
             for index, file_path in enumerate(file_paths, 1):
+                # Validate and resolve the source path
+                source_path = self._validate_path(file_path, must_exist=True, operation_type="batch_rename")
+                
+                # Calculate the new name based on pattern
                 if pattern:
-                    
                     new_name = pattern.format(
                         n=index,
                         date=datetime.now().strftime("%Y%m%d"),
                         time=datetime.now().strftime("%H%M%S"),
-                        orig=Path(file_path).stem
+                        orig=source_path.stem
                     )
-                    new_path = self.rename_file(file_path, new_name, options)
                 else:
-                    new_path = self.rename_file(file_path, None, options)
+                    new_name = None  # Will use rename_file's default logic
                 
-                results[str(file_path)] = str(new_path)
+                # Pre-calculate the destination path using the same logic as rename_file
+                # This allows us to detect conflicts before executing ANY renames
+                if new_name:
+                    dest_path = source_path.parent / f"{new_name}{source_path.suffix}"
+                else:
+                    # Will be calculated during execution based on options
+                    dest_path = None
                 
+                planned_operations.append((source_path, dest_path, new_name))
+            
+            logger.info(f"FL-011: Validation complete - all {len(planned_operations)} operations are valid")
+            
+        except Exception as e:
+            # Validation failed - no files have been modified
+            error_msg = (
+                f"Batch rename validation failed: {type(e).__name__}: {e}\n\n"
+                f"No files were modified.\n"
+                f"Fix the issue and try again."
+            )
+            self.history.log_operation(
+                "batch_rename",
+                "failed_validation",
+                operation_type="batch_rename",
+                metadata={'error': error_msg, 'files': file_paths}
+            )
+            logger.error(f"FL-011: Validation failed - {error_msg}")
+            raise ValueError(error_msg) from e
+        
+        # PHASE 2: EXECUTION - Execute renames with rollback capability
+        completed_operations = []  # Track successful renames: [(old_path, new_path), ...]
+        results = {}
+        
+        try:
+            logger.info(f"FL-011: Starting execution phase for {len(planned_operations)} operations")
+            
+            for index, (source_path, dest_path, new_name) in enumerate(planned_operations):
+                logger.debug(f"FL-011: Renaming [{index+1}/{len(planned_operations)}]: {source_path.name} -> {new_name or 'auto'}")
+                
+                # Execute the rename using the existing rename_file method
+                # This handles all the edge cases, sequencing, logging, etc.
+                new_path = self.rename_file(source_path, new_name, options)
+                
+                # Track this operation for potential rollback
+                completed_operations.append((new_path, source_path))
+                results[str(source_path)] = str(new_path)
+            
+            logger.info(f"FL-011: Batch rename completed successfully - {len(results)} files renamed")
             return results
             
-        except (PermissionError, FileExistsError, OSError) as e:
-            # These exceptions already have detailed messages from rename_file
-            error_msg = f"Batch rename failed: {e}"
-            self.history.log_operation(
-                "batch_rename",
-                "failed",
-                operation_type="batch_rename",
-                metadata={'error': error_msg, 'files': file_paths}
-            )
-            raise
         except Exception as e:
+            # ROLLBACK: A rename failed - undo all completed renames
+            logger.error(f"FL-011: Rename failed at operation {len(completed_operations)+1}/{len(planned_operations)}: {e}")
+            logger.warning(f"FL-011: Initiating rollback of {len(completed_operations)} completed operations")
+            
+            rollback_failures = []
+            
+            # Rollback in REVERSE order to handle sequence numbering correctly
+            for current_path, original_path in reversed(completed_operations):
+                try:
+                    # Rename back to original name
+                    if current_path.exists():
+                        current_path.rename(original_path)
+                        logger.debug(f"FL-011: Rolled back: {current_path.name} -> {original_path.name}")
+                    else:
+                        logger.warning(f"FL-011: Rollback skipped - file missing: {current_path}")
+                except Exception as rollback_error:
+                    # Log rollback failure but continue rolling back other files
+                    rollback_failures.append((current_path, original_path, rollback_error))
+                    logger.error(
+                        f"FL-011: Rollback failed for {current_path.name}: {rollback_error}\n"
+                        f"Manual intervention may be required to restore: {current_path} -> {original_path}"
+                    )
+            
+            # Log the rollback result
+            if rollback_failures:
+                rollback_status = (
+                    f"⚠️ PARTIAL ROLLBACK: {len(completed_operations) - len(rollback_failures)}/{len(completed_operations)} files restored.\n"
+                    f"❌ {len(rollback_failures)} rollback failures - manual intervention required:\n" +
+                    "\n".join([f"  • {curr} -> {orig}: {err}" for curr, orig, err in rollback_failures])
+                )
+                logger.critical(f"FL-011: {rollback_status}")
+            else:
+                rollback_status = f"✓ COMPLETE ROLLBACK: All {len(completed_operations)} operations reversed successfully."
+                logger.info(f"FL-011: {rollback_status}")
+            
+            # Construct detailed error message
             error_msg = (
-                f"Unexpected error during batch rename: {type(e).__name__}: {e}\n\n"
-                f"Files attempted: {len(file_paths)}\n"
-                f"Some files may have been renamed successfully before the error occurred."
+                f"Batch rename failed during execution: {type(e).__name__}: {e}\n\n"
+                f"Operation failed at file {len(completed_operations)+1} of {len(planned_operations)}.\n\n"
+                f"ROLLBACK STATUS:\n{rollback_status}\n\n"
+                f"Original error: {e}"
             )
+            
             self.history.log_operation(
                 "batch_rename",
-                "failed",
+                "failed_with_rollback",
                 operation_type="batch_rename",
-                metadata={'error': error_msg, 'files': file_paths}
+                metadata={
+                    'error': str(e),
+                    'files_attempted': len(planned_operations),
+                    'files_completed': len(completed_operations),
+                    'rollback_status': rollback_status,
+                    'rollback_failures': len(rollback_failures)
+                }
             )
-            raise RuntimeError(error_msg) from e
+            
+            # Re-raise the original error with rollback context
+            if rollback_failures:
+                raise RuntimeError(error_msg) from e
+            else:
+                # Clean rollback - re-raise original exception type
+                raise type(e)(error_msg) from e
 
     def categorize_file(self, file_path):
         """
