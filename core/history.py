@@ -668,36 +668,51 @@ class HistoryManager:
         """Undo a specific file operation by ID"""
         try:
             result = self.db_manager.execute_query(
-                "SELECT original_path, new_path FROM history WHERE id = ? AND status = 'success'",
+                "SELECT file_name, original_path, new_path FROM history WHERE id = ? AND status = 'success'",
                 params=(op_id,),
                 fetch_mode='one'
             )
             
             if result:
-                original_path, new_path = result
-                if os.path.exists(new_path):
-                    try:
-                        # Ensure original directory exists
-                        original_dir = os.path.dirname(original_path)
-                        os.makedirs(original_dir, exist_ok=True)
-                        
-                        # Move file back
-                        os.rename(new_path, original_path)
-                        
-                        # Update database status
-                        success = self.db_manager.execute_transaction([
-                            ("UPDATE history SET status = 'undone' WHERE id = ?", (op_id,))
-                        ])
-                        
-                        if success:
-                            return True, f"Successfully moved {os.path.basename(new_path)} back to {original_path}"
-                        else:
-                            return False, "Failed to update database"
-                    except Exception as e:
-                        return False, f"Error during undo: {e}"
-                return False, "File no longer exists at new location"
+                file_name, original_path, new_path = result
+                
+                # Check if file exists at new_path before attempting undo
+                if not os.path.exists(new_path):
+                    logger.warning(f"Cannot undo operation {op_id}: File not found at {new_path}")
+                    return False, (
+                        f"Cannot undo: '{file_name}' is missing from {new_path}.\n"
+                        f"The file may have been manually moved or deleted.\n"
+                        f"Expected location: {new_path}\n"
+                        f"Original location: {original_path}\n"
+                        f"Please verify the file's current location and restore it manually if needed."
+                    )
+                
+                try:
+                    # Ensure original directory exists
+                    original_dir = os.path.dirname(original_path)
+                    os.makedirs(original_dir, exist_ok=True)
+                    
+                    # Move file back
+                    os.rename(new_path, original_path)
+                    
+                    # Update database status
+                    success = self.db_manager.execute_transaction([
+                        ("UPDATE history SET status = 'undone' WHERE id = ?", (op_id,))
+                    ])
+                    
+                    if success:
+                        logger.info(f"Successfully undone operation {op_id}: {file_name}")
+                        return True, f"Successfully moved {os.path.basename(new_path)} back to {original_path}"
+                    else:
+                        logger.error(f"Failed to update database after undo for operation {op_id}")
+                        return False, "Failed to update database"
+                except Exception as e:
+                    logger.error(f"Error during undo operation {op_id}: {e}")
+                    return False, f"Error during undo: {e}"
+                    
             return False, "Operation not found or already undone"
         except Exception as e:
+            logger.error(f"Error in undo_operation_by_id: {e}")
             return False, f"Error during undo: {e}"
             
     def get_operations_with_id(self, limit=10):
