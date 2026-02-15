@@ -808,7 +808,7 @@ def main():
     from PyQt6.QtGui import QPixmap, QColor
     from PyQt6.QtWidgets import QSplashScreen
     
-    splash_base = get_base_path() / 'resources' / 'icons' / 'rnr.png'
+    splash_base = get_base_path() / 'resources' / 'icons' / 'app_icon.png'
     if not splash_base.exists():
         # Fallback if png not found, try ico or just no splash
         splash_base = get_base_path() / 'resources' / 'icons' / 'app_icon.ico'
