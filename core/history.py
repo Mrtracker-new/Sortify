@@ -368,8 +368,114 @@ class HistoryManager:
             logger.error(f"Error getting session operations: {e}")
             return []
     
+    def _validate_undo_operation(self, op_id):
+        """Validate that an operation can be undone
+        
+        Returns:
+            tuple: (success: bool, error_message: str or None)
+        """
+        try:
+            result = self.db_manager.execute_query(
+                "SELECT file_name, original_path, new_path FROM history WHERE id = ? AND status = 'success'",
+                params=(op_id,),
+                fetch_mode='one'
+            )
+            
+            if not result:
+                return False, f"Operation {op_id} not found or already undone"
+            
+            file_name, original_path, new_path = result
+            
+            # Check if file exists at current location (new_path)
+            if not os.path.exists(new_path):
+                return False, f"File '{file_name}' not found at {new_path}. It may have been moved or deleted."
+            
+            # Check if original directory exists or can be created
+            original_dir = os.path.dirname(original_path)
+            if original_dir and not os.path.exists(original_dir):
+                # Check if we can create the directory
+                try:
+                    # Try to check parent directory permissions
+                    parent_dir = os.path.dirname(original_dir)
+                    if parent_dir and not os.access(parent_dir, os.W_OK):
+                        return False, f"Cannot create directory {original_dir}: parent directory not writable"
+                except Exception as e:
+                    return False, f"Cannot validate directory creation for {original_dir}: {e}"
+            
+            # Check if destination path would conflict with existing file
+            if os.path.exists(original_path):
+                return False, f"Cannot undo: a file already exists at {original_path}"
+            
+            return True, None
+            
+        except Exception as e:
+            logger.error(f"Error validating undo operation {op_id}: {e}")
+            return False, f"Validation error: {str(e)}"
+    
+    def _redo_operation_by_id(self, op_id):
+        """Redo an operation (reverse an undo) - used for rollback
+        
+        Moves file from original_path back to new_path and updates status back to 'success'
+        
+        Returns:
+            tuple: (success: bool, message: str)
+        """
+        try:
+            result = self.db_manager.execute_query(
+                "SELECT file_name, original_path, new_path FROM history WHERE id = ? AND status = 'undone'",
+                params=(op_id,),
+                fetch_mode='one'
+            )
+            
+            if not result:
+                return False, "Operation not found or not in undone state"
+            
+            file_name, original_path, new_path = result
+            
+            # Check if file exists at original location
+            if not os.path.exists(original_path):
+                logger.error(f"Redo failed: File not found at {original_path}")
+                return False, f"File not found at {original_path}"
+            
+            try:
+                # Ensure new directory exists
+                new_dir = os.path.dirname(new_path)
+                if new_dir:
+                    os.makedirs(new_dir, exist_ok=True)
+                
+                # Move file back to new_path
+                os.rename(original_path, new_path)
+                
+                # Update database status back to success
+                success = self.db_manager.execute_transaction([
+                    ("UPDATE history SET status = 'success' WHERE id = ?", (op_id,))
+                ])
+                
+                if success:
+                    logger.info(f"Successfully redone operation {op_id}: {file_name}")
+                    return True, f"Redone operation for {file_name}"
+                else:
+                    logger.error(f"Failed to update database after redo for operation {op_id}")
+                    return False, "Failed to update database"
+                    
+            except Exception as e:
+                logger.error(f"Error during redo operation {op_id}: {e}")
+                return False, f"Error during redo: {e}"
+                
+        except Exception as e:
+            logger.error(f"Error in _redo_operation_by_id: {e}")
+            return False, f"Error during redo: {e}"
+    
     def undo_session(self, session_id):
-        """Undo all operations in a session (in reverse order)"""
+        """Undo all operations in a session (in reverse order) - TRANSACTIONAL
+        
+        Uses two-phase commit:
+        1. Validation phase: Check all operations can be undone
+        2. Execution phase: Perform undos with rollback on failure
+        
+        If any operation fails, all successfully undone operations are rolled back
+        to maintain filesystem consistency.
+        """
         try:
             operations = self.get_session_operations(session_id)
             
@@ -385,26 +491,81 @@ class HistoryManager:
             # Undo in reverse order (last operation first)
             operations_to_undo.reverse()
             
-            failed_operations = []
-            successful_operations = []
+            # PHASE 1: VALIDATION - Check all operations can be undone
+            logger.info(f"Phase 1: Validating {len(operations_to_undo)} operations for session {session_id}")
+            validation_errors = []
+            
+            for operation in operations_to_undo:
+                is_valid, error_msg = self._validate_undo_operation(operation['id'])
+                if not is_valid:
+                    validation_errors.append((operation['file_name'], error_msg))
+            
+            # If validation failed, don't proceed with undo
+            if validation_errors:
+                logger.warning(f"Session undo validation failed for {len(validation_errors)} operations")
+                error_details = "\n".join([f"  - {name}: {msg}" for name, msg in validation_errors])
+                return False, (
+                    f"Cannot undo session: {len(validation_errors)} operation(s) failed validation.\n"
+                    f"No changes were made to maintain consistency.\n\n"
+                    f"Validation errors:\n{error_details}\n\n"
+                    f"Please resolve these issues before attempting to undo this session."
+                )
+            
+            # PHASE 2: EXECUTION - All validations passed, perform actual undo
+            logger.info(f"Phase 2: Executing undo for {len(operations_to_undo)} operations")
+            successfully_undone = []  # Track for potential rollback
             
             for operation in operations_to_undo:
                 success, message = self.undo_operation_by_id(operation['id'])
+                
                 if success:
-                    successful_operations.append(operation['file_name'])
+                    successfully_undone.append(operation)
+                    logger.debug(f"Undone operation {operation['id']}: {operation['file_name']}")
                 else:
-                    failed_operations.append((operation['file_name'], message))
+                    # ROLLBACK: An undo failed, restore all previously undone operations
+                    logger.error(f"Undo failed for operation {operation['id']}: {message}")
+                    logger.warning(f"Rolling back {len(successfully_undone)} successfully undone operations")
+                    
+                    rollback_failures = []
+                    for undone_op in reversed(successfully_undone):  # Reverse again to restore in correct order
+                        redo_success, redo_message = self._redo_operation_by_id(undone_op['id'])
+                        if not redo_success:
+                            rollback_failures.append((undone_op['file_name'], redo_message))
+                    
+                    # Build comprehensive error message
+                    error_msg = (
+                        f"Session undo failed at operation: {operation['file_name']}\n"
+                        f"Error: {message}\n\n"
+                    )
+                    
+                    if rollback_failures:
+                        # Critical: rollback failed, filesystem is in inconsistent state
+                        logger.critical(f"CRITICAL: Rollback failed for {len(rollback_failures)} operations!")
+                        rollback_errors = "\n".join([f"  - {name}: {msg}" for name, msg in rollback_failures])
+                        error_msg += (
+                            f"CRITICAL: Rollback failed for {len(rollback_failures)} operation(s).\n"
+                            f"The filesystem may be in an inconsistent state.\n\n"
+                            f"Rollback failures:\n{rollback_errors}\n\n"
+                            f"Please manually verify file locations and restore consistency."
+                        )
+                    else:
+                        # Rollback succeeded, filesystem is consistent
+                        logger.info(f"Successfully rolled back {len(successfully_undone)} operations")
+                        error_msg += (
+                            f"Successfully rolled back {len(successfully_undone)} operation(s).\n"
+                            f"All files have been restored to their previous state.\n"
+                            f"No changes were made to the filesystem."
+                        )
+                    
+                    return False, error_msg
             
-            # Build result message
-            if failed_operations:
-                failure_msg = "\n".join([f"  - {name}: {msg}" for name, msg in failed_operations])
-                return False, f"Partially undone session. Success: {len(successful_operations)}, Failed: {len(failed_operations)}\nFailures:\n{failure_msg}"
-            else:
-                return True, f"Successfully undone {len(successful_operations)} operations from session {session_id}"
+            # All operations succeeded
+            logger.info(f"Successfully undone {len(successfully_undone)} operations from session {session_id}")
+            return True, f"Successfully undone {len(successfully_undone)} operations from session {session_id}"
                 
         except Exception as e:
-            logger.error(f"Error undoing session: {e}")
-            return False, f"Error undoing session: {str(e)}"
+            logger.error(f"Unexpected error undoing session: {e}")
+            return False, f"Unexpected error undoing session: {str(e)}"
 
     def add_history_entry(self, file_name, original_path, new_path, file_size=None, operation_type="move", status="success"):
         """Add an entry to the history table"""
