@@ -619,7 +619,19 @@ class AIFileClassifier:
                 file_size_bytes = file_path.stat().st_size
                 file_size_mb = file_size_bytes / (1024 * 1024)  # Convert to MB
                 
-                if file_size_mb > self.max_file_size_mb:
+                # EMPTY FILE CHECK: Warn about empty files (0 bytes)
+                if file_size_bytes == 0:
+                    logging.warning(f"Empty file detected (0 bytes): {file_path}")
+                    warning_msg = "Empty file (0 bytes) - categorization based on filename only"
+                    self.extraction_warnings[str(file_path)] = warning_msg
+                    failure_info = {
+                        'file': str(file_path),
+                        'error': 'File is empty (0 bytes)',
+                        'timestamp': datetime.now().isoformat(),
+                        'reason': 'empty_file'
+                    }
+                    self.extraction_failures.append(failure_info)
+                elif file_size_mb > self.max_file_size_mb:
                     # File too large - skip content extraction
                     logging.info(f"Skipping extraction for {file_path}: file size ({file_size_mb:.1f}MB) exceeds limit ({self.max_file_size_mb}MB)")
                     warning_msg = f"File too large ({file_size_mb:.1f}MB) - categorization based on filename only"
@@ -684,13 +696,26 @@ class AIFileClassifier:
         
         # Fall back to basic text extraction if content wasn't extracted
         if not content_extracted and self._is_text_file(file_path):
-            try:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read(2000)  # Read first 2000 chars
-                    features.append(content)
-                    logging.debug(f"Successfully extracted content with basic method from {file_path}")
-            except Exception as e:
-                logging.debug(f"Could not extract content from {file_path}: {e}")
+            # BINARY FILE CHECK: Detect binary files before attempting text extraction
+            if self._is_binary_file(file_path):
+                logging.info(f"Binary file detected, skipping content extraction: {file_path}")
+                warning_msg = "Binary file detected - categorization based on filename only"
+                self.extraction_warnings[str(file_path)] = warning_msg
+                failure_info = {
+                    'file': str(file_path),
+                    'error': 'Binary file detected',
+                    'timestamp': datetime.now().isoformat(),
+                    'reason': 'binary_file'
+                }
+                self.extraction_failures.append(failure_info)
+            else:
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read(2000)  # Read first 2000 chars
+                        features.append(content)
+                        logging.debug(f"Successfully extracted content with basic method from {file_path}")
+                except Exception as e:
+                    logging.debug(f"Could not extract content from {file_path}: {e}")
         
         # Join features and cache the result
         result = ' '.join(features)
@@ -701,6 +726,44 @@ class AIFileClassifier:
             logging.debug(f"Cached features for {file_path}")
         
         return result
+    
+    def _is_binary_file(self, file_path):
+        """Check if file is binary by reading first chunk and checking for null bytes.
+        
+        This is a heuristic approach - binary files typically contain null bytes
+        while text files don't. We read the first 8KB to detect binary content.
+        
+        Args:
+            file_path: Path to the file to check
+            
+        Returns:
+            bool: True if file appears to be binary, False if it appears to be text
+        """
+        try:
+            # Read first 8KB of file
+            with open(file_path, 'rb') as f:
+                chunk = f.read(8192)
+            
+            # Empty file is not binary
+            if not chunk:
+                return False
+            
+            # Check for null bytes (common in binary files, rare in text)
+            if b'\x00' in chunk:
+                return True
+            
+            # Check percentage of non-printable characters
+            # Text files should have mostly printable characters
+            non_printable_count = sum(1 for byte in chunk if byte < 32 and byte not in (9, 10, 13))
+            non_printable_ratio = non_printable_count / len(chunk)
+            
+            # If more than 30% non-printable, likely binary
+            return non_printable_ratio > 0.3
+            
+        except Exception as e:
+            logging.debug(f"Error checking if file is binary {file_path}: {e}")
+            # On error, assume text to allow processing to continue
+            return False
     
     def _is_text_file(self, file_path):
         """Check if file is likely a text file based on extension
