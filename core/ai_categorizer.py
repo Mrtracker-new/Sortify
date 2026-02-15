@@ -15,13 +15,27 @@ from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import accuracy_score, classification_report
 from datetime import datetime
 
-# Try to import textract, but make it optional
+# Try to import text extraction libraries, but make them optional
 try:
-    import textract  # For extracting text from various file formats
-    TEXTRACT_AVAILABLE = True
+    from PyPDF2 import PdfReader
+    PYPDF2_AVAILABLE = True
 except ImportError:
-    logging.warning("textract module not found. Advanced text extraction will be limited.")
-    TEXTRACT_AVAILABLE = False
+    logging.warning("PyPDF2 module not found. PDF text extraction will be limited.")
+    PYPDF2_AVAILABLE = False
+
+try:
+    from docx import Document
+    PYTHON_DOCX_AVAILABLE = True
+except ImportError:
+    logging.warning("python-docx module not found. Word document extraction will be limited.")
+    PYTHON_DOCX_AVAILABLE = False
+
+try:
+    from PIL import Image
+    PILLOW_AVAILABLE = True
+except ImportError:
+    logging.warning("Pillow module not found. Image handling will be limited.")
+    PILLOW_AVAILABLE = False
 
 # Try to import sentence-transformers, but make it optional
 try:
@@ -147,11 +161,11 @@ class LRUCache:
 
 
 class ContentCache:
-    """Cache for textract-extracted content to avoid repeated slow processing.
+    """Cache for extracted content to avoid repeated slow processing.
     
     Uses file content hash as cache key (optimized for large files with partial hashing).
-    This prevents repeated expensive textract operations and eliminates race conditions
-    from mtime-based caching.
+    This prevents repeated expensive extraction operations (PyPDF2, python-docx, etc.) 
+    and eliminates race conditions from mtime-based caching.
     """
     def __init__(self, max_size=500):
         """Initialize content cache with LRU eviction.
@@ -394,7 +408,7 @@ class SentenceTransformerClassifier:
 
 class AIFileClassifier:
     """AI-based file classifier using Naive Bayes with content analysis"""
-    def __init__(self, model_path=None, classifier_type='naive_bayes', max_file_size_mb=100, textract_timeout_seconds=10):
+    def __init__(self, model_path=None, classifier_type='naive_bayes', max_file_size_mb=100, extraction_timeout_seconds=10):
         # Create a pipeline with improved vectorizer and classifier
         self.classifier_type = classifier_type
         self._create_pipeline()
@@ -402,15 +416,15 @@ class AIFileClassifier:
         self.categories = []
         # Use LRU cache with automatic eviction to prevent memory leaks
         self.feature_cache = LRUCache(max_size=1000)
-        # Add content cache specifically for textract-extracted content
+        # Add content cache specifically for extracted content
         self.content_cache = ContentCache(max_size=500)
         self.last_training_time = None
         self.training_accuracy = None
         self.model_version = 1
         
-        # Configuration for textract processing safety
+        # Configuration for content extraction processing safety
         self.max_file_size_mb = max_file_size_mb
-        self.textract_timeout_seconds = textract_timeout_seconds
+        self.extraction_timeout_seconds = extraction_timeout_seconds
         
         # Track extraction failures to warn users about degraded categorization
         self.extraction_failures = []  # List of files where content extraction failed
@@ -480,6 +494,67 @@ class AIFileClassifier:
             logging.debug(f"Error computing file hash for {file_path}: {e}")
             return None
     
+    def _extract_pdf_text(self, file_path):
+        """Extract text from PDF file using PyPDF2.
+        
+        Args:
+            file_path: Path object for the PDF file
+            
+        Returns:
+            str: Extracted text content, or None on error
+        """
+        if not PYPDF2_AVAILABLE:
+            return None
+            
+        try:
+            text_parts = []
+            with open(file_path, 'rb') as f:
+                pdf_reader = PdfReader(f)
+                # Extract text from all pages (limit to first 10 pages for performance)
+                max_pages = min(len(pdf_reader.pages), 10)
+                for page_num in range(max_pages):
+                    page = pdf_reader.pages[page_num]
+                    page_text = page.extract_text()
+                    if page_text:
+                        text_parts.append(page_text)
+            
+            return ' '.join(text_parts) if text_parts else None
+        except Exception as e:
+            logging.debug(f"PDF extraction error for {file_path}: {e}")
+            return None
+    
+    def _extract_docx_text(self, file_path):
+        """Extract text from Word document using python-docx.
+        
+        Args:
+            file_path: Path object for the Word document
+            
+        Returns:
+            str: Extracted text content, or None on error
+        """
+        if not PYTHON_DOCX_AVAILABLE:
+            return None
+            
+        try:
+            doc = Document(str(file_path))
+            text_parts = []
+            # Extract text from all paragraphs
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    text_parts.append(paragraph.text)
+            
+            # Also extract text from tables
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        if cell.text.strip():
+                            text_parts.append(cell.text)
+            
+            return ' '.join(text_parts) if text_parts else None
+        except Exception as e:
+            logging.debug(f"Word document extraction error for {file_path}: {e}")
+            return None
+    
     def extract_features(self, file_path):
         """Extract features from a file for classification including content analysis
         
@@ -529,75 +604,85 @@ class AIFileClassifier:
             
         # Try to extract content from various file types
         content_extracted = False
+        file_extension = file_path.suffix.lower()
         
-        # First try textract if available
-        if TEXTRACT_AVAILABLE:
-            try:
-                # Check content cache first to avoid slow textract processing
-                cached_content = self.content_cache.get_content(file_path)
-                if cached_content is not None:
-                    logging.debug(f"Content cache hit for {file_path}")
-                    features.append(cached_content)
-                    content_extracted = True
+        # Try modern extraction methods based on file type
+        try:
+            # Check content cache first to avoid slow processing
+            cached_content = self.content_cache.get_content(file_path)
+            if cached_content is not None:
+                logging.debug(f"Content cache hit for {file_path}")
+                features.append(cached_content)
+                content_extracted = True
+            else:
+                # SAFETY CHECK: Check file size before processing
+                file_size_bytes = file_path.stat().st_size
+                file_size_mb = file_size_bytes / (1024 * 1024)  # Convert to MB
+                
+                if file_size_mb > self.max_file_size_mb:
+                    # File too large - skip content extraction
+                    logging.info(f"Skipping extraction for {file_path}: file size ({file_size_mb:.1f}MB) exceeds limit ({self.max_file_size_mb}MB)")
+                    warning_msg = f"File too large ({file_size_mb:.1f}MB) - categorization based on filename only"
+                    self.extraction_warnings[str(file_path)] = warning_msg
+                    failure_info = {
+                        'file': str(file_path),
+                        'error': f'File size {file_size_mb:.1f}MB exceeds limit',
+                        'timestamp': datetime.now().isoformat(),
+                        'reason': 'size_limit'
+                    }
+                    self.extraction_failures.append(failure_info)
                 else:
-                    # SAFETY CHECK: Check file size before processing
-                    file_size_bytes = file_path.stat().st_size
-                    file_size_mb = file_size_bytes / (1024 * 1024)  # Convert to MB
+                    # File size OK - process with timeout protection
+                    extracted_text = None
                     
-                    if file_size_mb > self.max_file_size_mb:
-                        # File too large - skip textract processing
-                        logging.info(f"Skipping textract for {file_path}: file size ({file_size_mb:.1f}MB) exceeds limit ({self.max_file_size_mb}MB)")
-                        warning_msg = f"File too large ({file_size_mb:.1f}MB) - categorization based on filename only"
+                    try:
+                        # PDF files
+                        if file_extension == '.pdf':
+                            extracted_text = _run_with_timeout(
+                                self._extract_pdf_text,
+                                args=(file_path,),
+                                timeout_seconds=self.extraction_timeout_seconds
+                            )
+                        # Word documents
+                        elif file_extension in ['.docx', '.doc']:
+                            extracted_text = _run_with_timeout(
+                                self._extract_docx_text,
+                                args=(file_path,),
+                                timeout_seconds=self.extraction_timeout_seconds
+                            )
+                        
+                        if extracted_text:
+                            # Limit content size to avoid memory issues
+                            text_content = extracted_text[:5000]
+                            # Cache the extracted content for future use
+                            self.content_cache.set_content(file_path, text_content)
+                            features.append(text_content)
+                            content_extracted = True
+                            logging.debug(f"Successfully extracted and cached content from {file_path}")
+                    except TimeoutError as e:
+                        logging.warning(f"Content extraction timeout for {file_path}: {e}")
+                        warning_msg = f"Processing timeout ({self.extraction_timeout_seconds}s) - categorization based on filename only"
                         self.extraction_warnings[str(file_path)] = warning_msg
                         failure_info = {
                             'file': str(file_path),
-                            'error': f'File size {file_size_mb:.1f}MB exceeds limit',
+                            'error': str(e),
                             'timestamp': datetime.now().isoformat(),
-                            'reason': 'size_limit'
+                            'reason': 'timeout'
                         }
                         self.extraction_failures.append(failure_info)
-                    else:
-                        # File size OK - process with timeout protection
-                        try:
-                            # Use textract to extract text with timeout protection
-                            content = _run_with_timeout(
-                                textract.process,
-                                args=(str(file_path),),
-                                kwargs={'encoding': 'utf-8'},
-                                timeout_seconds=self.textract_timeout_seconds
-                            )
-                            if content:
-                                # Limit content size to avoid memory issues
-                                text_content = content.decode('utf-8')[:5000]
-                                # Cache the extracted content for future use
-                                self.content_cache.set_content(file_path, text_content)
-                                features.append(text_content)
-                                content_extracted = True
-                                logging.debug(f"Successfully extracted and cached content with textract from {file_path}")
-                        except TimeoutError as e:
-                            logging.warning(f"Textract processing timeout for {file_path}: {e}")
-                            warning_msg = f"Processing timeout ({self.textract_timeout_seconds}s) - categorization based on filename only"
-                            self.extraction_warnings[str(file_path)] = warning_msg
-                            failure_info = {
-                                'file': str(file_path),
-                                'error': str(e),
-                                'timestamp': datetime.now().isoformat(),
-                                'reason': 'timeout'
-                            }
-                            self.extraction_failures.append(failure_info)
-            except Exception as e:
-                logging.warning(f"Textract extraction failed for {file_path}: {e}")
-                # Track this failure for user notification
-                failure_info = {
-                    'file': str(file_path),
-                    'error': str(e),
-                    'timestamp': datetime.now().isoformat(),
-                    'reason': 'extraction_error'
-                }
-                self.extraction_failures.append(failure_info)
-                self.extraction_warnings[str(file_path)] = "Content extraction failed - categorization based on filename only"
+        except Exception as e:
+            logging.warning(f"Content extraction failed for {file_path}: {e}")
+            # Track this failure for user notification
+            failure_info = {
+                'file': str(file_path),
+                'error': str(e),
+                'timestamp': datetime.now().isoformat(),
+                'reason': 'extraction_error'
+            }
+            self.extraction_failures.append(failure_info)
+            self.extraction_warnings[str(file_path)] = "Content extraction failed - categorization based on filename only"
         
-        # Fall back to basic text extraction if content wasn't extracted with textract
+        # Fall back to basic text extraction if content wasn't extracted
         if not content_extracted and self._is_text_file(file_path):
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
