@@ -1,89 +1,102 @@
 # Contributing to Sortify
 
-Thank you for your interest in contributing to Sortify! This document provides guidelines and best practices for contributing to the project.
+**So You Want to Make Sortify Even Better? Awesome! Let's Do This! 🎉**
 
-## 📋 Table of Contents
+Thank you for considering contributing to Sortify! We're genuinely thrilled to have you here. This guide will help you get started without pulling your hair out.
 
-- [Code of Conduct](#code-of-conduct)
-- [Getting Started](#getting-started)
-- [Development Setup](#development-setup)
-- [Coding Standards](#coding-standards)
-- [Testing](#testing)
-- [Submitting Changes](#submitting-changes)
-- [Reporting Bugs](#reporting-bugs)
+---
 
-## 🤝 Code of Conduct
+## 📋 What's in This Guide
 
-- Be respectful and inclusive
-- Focus on constructive feedback
-- Help create a welcoming environment for all contributors
+- [The Basics (Be Cool)](#-the-basics-be-cool)
+- [Getting Your Dev Environment Ready](#-getting-your-dev-environment-ready)
+- [How We Code (No Chaos Allowed)](#-how-we-code-no-chaos-allowed)
+- [Testing Your Stuff](#-testing-your-stuff)
+- [Submitting Your Masterpiece](#-submitting-your-masterpiece)
+- [Found a Bug? Tell Us!](#-found-a-bug-tell-us)
+- [Want a Feature? Let's Hear It!](#-want-a-feature-lets-hear-it)
 
-## 🚀 Getting Started
+---
 
-1. Fork the repository on GitHub
-2. Clone your fork locally:
+## 🤝 The Basics (Be Cool)
+
+**Our Code of Conduct is Simple:**
+- **Be kind**: We're all learning. No one was born knowing Python.
+- **Be constructive**: "This sucks" helps no one. "Here's how we could improve X" helps everyone.
+- **Be inclusive**: Everyone's welcome here—beginners, experts, night owls, early birds, coffee addicts, tea enthusiasts, you name it.
+
+Basically: Don't be a jerk, and we'll get along great! 😊
+
+---
+
+## 🚀 Getting Your Dev Environment Ready
+
+### Step 1: Fork & Clone
+1. **Fork this repo** on GitHub (hit that Fork button!)
+2. **Clone your fork** to your machine:
    ```bash
    git clone https://github.com/YOUR-USERNAME/Sortify.git
    cd Sortify
    ```
-3. Add the upstream repository:
+3. **Add the upstream repo** (so you can stay in sync):
    ```bash
    git remote add upstream https://github.com/Mrtracker-new/Sortify.git
    ```
 
-## 💻 Development Setup
+### Step 2: Set Up Your Environment
+We're civilized here—use a virtual environment! Your future self will thank you.
 
-1. Create a virtual environment:
-   ```bash
-   python -m venv venv
-   
-   # Windows
-   venv\Scripts\activate
-   
-   # Linux/macOS
-   source venv/bin/activate
-   ```
+```bash
+# Create virtual environment
+python -m venv venv
 
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+# Activate it
+# On Windows:
+venv\Scripts\activate
+# On macOS/Linux:
+source venv/bin/activate
 
-3. Download spaCy language model:
-   ```bash
-   python -m spacy download en_core_web_sm
-   ```
+# Install all the goodies
+pip install -r requirements.txt
 
-## 📝 Coding Standards
+# Download the spaCy language model (for NLP magic)
+python -m spacy download en_core_web_sm
+```
 
-### Python Style Guide
+**Pro Tip:** First launch might take a minute to download the Sentence Transformer model (~80MB). Perfect time for a coffee break ☕
 
-We follow [PEP 8](https://pep8.org/) style guidelines. Key points:
+---
 
-#### Import Order
+## 📝 How We Code (No Chaos Allowed)
+
+### Python Style: We Follow PEP 8 (Mostly)
+
+Look, we're not monsters. We follow [PEP 8](https://pep8.org/) because it makes our code readable, not because we love rules.
+
+#### Import Order (Keep It Clean)
 ```python
-# Standard library imports
+# 1. Standard library stuff first
 import os
 import sys
 from pathlib import Path
 
-# Third-party imports
+# 2. Third-party libraries next
 import spacy
 from PyQt6.QtWidgets import QApplication
 
-# Local application imports
+# 3. Our own code last
 from core.categorization import FileCategorizationAI
 from ui.main_window import MainWindow
 ```
 
-#### Naming Conventions
-- **Classes**: `PascalCase` (e.g., `FileOperations`, `AIFileClassifier`)
-- **Functions/Methods**: `snake_case` (e.g., `categorize_file`, `load_model`)
-- **Constants**: `UPPER_SNAKE_CASE` (e.g., `MAX_FILE_SIZE`, `DEFAULT_TIMEOUT`)
-- **Private methods**: Prefix with underscore (e.g., `_set_windows_file_permissions`)
+#### Naming Conventions (So We Don't Get Confused)
+- **Classes**: `PascalCase` → `FileOperations`, `AIFileClassifier`
+- **Functions/Methods**: `snake_case` → `categorize_file()`, `load_model()`
+- **Constants**: `UPPER_SNAKE_CASE` → `MAX_FILE_SIZE`, `DEFAULT_TIMEOUT`
+- **Private stuff**: Prefix with `_` → `_internal_helper()`
 
-#### Documentation
-All functions and classes should have docstrings:
+#### Write Docstrings (Future You Will Love You)
+Every function should explain what it does. Example:
 
 ```python
 def categorize_file(self, file_path):
@@ -93,73 +106,82 @@ def categorize_file(self, file_path):
         file_path (str or Path): Path to the file to categorize
         
     Returns:
-        str: Category path in format 'category/subcategory'
+        str: Category like 'documents/invoices' or 'images/screenshots'
         
     Raises:
-        FileNotFoundError: If the file does not exist
+        FileNotFoundError: If the file doesn't exist (obviously)
     """
-    # Implementation here
+    # Your brilliant code here
 ```
 
-#### Error Handling
-- Use specific exceptions, not bare `except:` clauses
-- Log errors appropriately
-- Provide meaningful error messages
+#### Error Handling (Don't Hide Problems)
 
+**Bad** (please don't do this):
 ```python
-# Bad
 try:
     do_something()
 except:
-    pass
+    pass  # 🔥 Problem? What problem? 🔥
+```
 
-# Good
+**Good** (yes, do this):
+```python
 try:
     do_something()
 except FileNotFoundError as e:
     logging.error(f"File not found: {e}")
-    raise
+    raise  # Let the caller know something went wrong
 except PermissionError as e:
     logging.warning(f"Permission denied: {e}")
-    return False
+    return False  # Graceful degradation
 ```
 
-#### Type Hints (Encouraged)
+#### Type Hints Are Your Friends
+They're optional but **highly encouraged**. Your IDE will love you for it:
+
 ```python
 from typing import Optional, List, Dict
 from pathlib import Path
 
-def move_file(self, source_path: Path, category_path: str) -> Optional[Path]:
-    """Move file to appropriate category folder"""
+def move_file(self, source: Path, destination: str) -> Optional[Path]:
+    """Move a file (with type hints so VS Code stops yelling at you)"""
     # Implementation
 ```
 
-### Code Quality
+### Code Quality Tips
 
-#### Avoid Code Duplication
-- Extract common logic into helper functions
-- Use inheritance and composition appropriately
-- Follow the DRY (Don't Repeat Yourself) principle
+#### Don't Repeat Yourself (DRY)
+If you're copy-pasting the same logic three times, **stop**. Make it a helper function.
 
-#### Keep Functions Focused
-- Each function should do one thing well
-- Aim for functions under 50 lines
-- Break complex functions into smaller helpers
-
-#### Use Descriptive Variable Names
 ```python
-# Bad
+# Bad: Repetitive code
+result1 = process_pdf(file1)
+result2 = process_pdf(file2)
+result3 = process_pdf(file3)
+
+# Good: Loop or helper function
+results = [process_pdf(f) for f in [file1, file2, file3]]
+```
+
+#### Keep Functions Small
+- **One function, one job**. If it does 5 things, split it into 5 functions.
+- **Aim for under 50 lines**. If it's longer, refactor it.
+- **Use descriptive names**: `categorize_file()` >> `do_stuff()`
+
+#### Variables Should Make Sense
+```python
+# Bad (what the heck is 'x'?)
 x = get_files()
 for f in x:
     process(f)
 
-# Good
+# Good (ah, now I get it!)
 file_paths = get_files()
 for file_path in file_paths:
     process_file(file_path)
 ```
 
-### Platform Compatibility
+### Platform Compatibility (Windows, Mac, Linux—We Support 'Em All)
 
 When writing platform-specific code, use proper checks:
 
@@ -167,184 +189,210 @@ When writing platform-specific code, use proper checks:
 import os
 
 if os.name == 'nt':  # Windows
-    # Windows-specific code
+    # Windows-specific stuff (icacls, win32api, etc.)
     pass
 else:  # Unix-like (Linux, macOS)
-    # Unix-specific code
+    # Unix stuff (chmod, etc.)
     pass
 ```
 
-## 🧪 Testing
+**Never** hardcode paths like `C:\\Users\\...` or assume everyone uses forward slashes. Use `pathlib.Path` instead!
+
+---
+
+## 🧪 Testing Your Stuff
+
+We don't deploy bugs to production. Here's how to make sure your code works:
 
 ### Running Tests
 ```bash
-# Run all tests
+# Run everything
 python -m pytest
 
-# Run specific test file
+# Run one specific test file
 python -m pytest tests/test_categorization.py
 
-# Run with coverage
+# Run with coverage report
 python -m pytest --cov=core --cov=ui
 ```
 
-### Writing Tests
-- Write unit tests for new functionality
-- Aim for at least 70% code coverage
-- Test edge cases and error conditions
+### Writing Tests (Yes, You Need Them)
+- **Write unit tests** for new features
+- **Aim for 70%+ code coverage** (the more, the better)
+- **Test edge cases**: What if the file doesn't exist? What if it's 0 bytes? What if it's 10 GB?
 
+**Example:**
 ```python
 import pytest
 from core.categorization import FileCategorizationAI
 
 def test_categorize_image_file():
-    """Test that image files are correctly categorized"""
+    """Test that JPEGs go to the images folder"""
     categorizer = FileCategorizationAI()
-    result = categorizer.categorize_file("test.jpg")
+    result = categorizer.categorize_file("vacation.jpg")
     assert result.startswith("images/")
 
 def test_categorize_nonexistent_file():
-    """Test handling of nonexistent files"""
+    """Test that nonexistent files raise an error"""
     categorizer = FileCategorizationAI()
     with pytest.raises(FileNotFoundError):
-        categorizer.categorize_file("nonexistent.txt")
+        categorizer.categorize_file("this_file_does_not_exist.txt")
 ```
 
-## 📤 Submitting Changes
+---
 
-### Commit Messages
+## 📤 Submitting Your Masterpiece
 
-Follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
+### Commit Messages (Make Them Meaningful)
+
+We use [Conventional Commits](https://www.conventionalcommits.org/). It sounds fancy but it's simple:
 
 ```
-type(scope): brief description
+type(scope): what you did in ~50 characters
 
-Longer description if needed
+Optional longer explanation if needed.
 
 Fixes #123
 ```
 
-Types:
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation changes
-- `refactor`: Code refactoring
-- `test`: Adding or updating tests
-- `chore`: Maintenance tasks
+**Types:**
+- `feat`: New feature (e.g., `feat(ai): add HEIC image support`)
+- `fix`: Bug fix (e.g., `fix(database): resolve Windows permission error`)
+- `docs`: Documentation (e.g., `docs(readme): update install instructions`)
+- `refactor`: Code cleanup (e.g., `refactor(main): consolidate permission checks`)
+- `test`: Tests (e.g., `test(categorization): add tests for edge cases`)
+- `chore`: Boring stuff (e.g., `chore: update dependencies`)
 
-Examples:
-```
-feat(categorization): add support for HEIC image format
-
-fix(database): resolve permission error on Windows
-
-docs(readme): update installation instructions
-
-refactor(main): consolidate duplicate database permission code
+**Examples:**
+```bash
+git commit -m "feat(categorization): add support for RAW image formats"
+git commit -m "fix(undo): handle missing target files gracefully"
+git commit -m "docs(contributing): make guide more human-friendly"
 ```
 
-### Pull Request Process
+### Pull Request Workflow
 
-1. Create a new branch for your feature:
+1. **Create a branch** for your feature:
    ```bash
-   git checkout -b feat/your-feature-name
+   git checkout -b feat/your-amazing-feature
    ```
 
-2. Make your changes and commit:
+2. **Make your changes** and commit:
    ```bash
    git add .
-   git commit -m "feat: add your feature"
+   git commit -m "feat: add your amazing feature"
    ```
 
-3. Push to your fork:
+3. **Push to your fork**:
    ```bash
-   git push origin feat/your-feature-name
+   git push origin feat/your-amazing-feature
    ```
 
-4. Open a Pull Request on GitHub with:
-   - Clear description of changes
-   - Link to related issues
-   - Screenshots (if UI changes)
-   - Test results
+4. **Open a Pull Request** on GitHub with:
+   - **Clear description** of what you changed and why
+   - **Link to related issues** (e.g., "Fixes #42")
+   - **Screenshots** if you changed the UI
+   - **Test results** (did everything pass?)
 
-5. Wait for review and address feedback
+5. **Wait for feedback** and be ready to make changes (we're nice, promise!)
 
-### PR Checklist
+### PR Checklist (Before Hitting "Submit")
 
-- [ ] Code follows PEP 8 style guidelines
-- [ ] All tests pass
-- [ ] New tests added for new functionality
-- [ ] Documentation updated (README, docstrings)
-- [ ] Commit messages follow convention
-- [ ] No merge conflicts with main branch
+- [ ] Code follows PEP 8 style
+- [ ] All tests pass locally
+- [ ] Added tests for new functionality
+- [ ] Updated documentation (README, docstrings)
+- [ ] Commit messages follow the convention
+- [ ] No merge conflicts with `main`
+- [ ] You tested it yourself (seriously, run it!)
 
-## 🐛 Reporting Bugs
+---
 
-Use the [GitHub Issues](https://github.com/Mrtracker-new/Sortify/issues) page with:
+## 🐛 Found a Bug? Tell Us!
 
-1. **Clear title** describing the issue
-2. **Steps to reproduce** the bug
-3. **Expected behavior** vs actual behavior
-4. **Environment details**:
-   - OS and version
-   - Python version
+**Step 1:** Check if someone else already reported it in [GitHub Issues](https://github.com/Mrtracker-new/Sortify/issues).
+
+**Step 2:** If not, create a new issue with:
+
+1. **Clear title**: "Database locks on Windows 11" (not "It's broken!!!")
+2. **How to reproduce**: Step-by-step instructions
+3. **Expected vs. actual behavior**: What *should* happen vs. what *did* happen
+4. **Your environment**:
+   - OS (Windows 11, Ubuntu 22.04, macOS 14, etc.)
+   - Python version (`python --version`)
    - Sortify version
-5. **Error messages** and logs
-6. **Screenshots** (if applicable)
+5. **Error messages**: Copy-paste from the logs
+6. **Screenshots**: If relevant
 
 ### Bug Report Template
 
 ```markdown
-**Description:**
-Brief description of the bug
+**What's Broken:**
+Brief description (e.g., "App crashes when sorting PDFs")
 
-**To Reproduce:**
-1. Step one
-2. Step two
-3. Step three
+**How to Reproduce:**
+1. Open Sortify
+2. Drag a PDF into the window
+3. Click "Organize Files"
+4. 💥 Crash
 
-**Expected Behavior:**
-What should happen
+**Expected:**
+PDF should be categorized without crashing
 
-**Actual Behavior:**
-What actually happens
+**Actual:**
+App crashes with "FileNotFoundError"
 
 **Environment:**
-- OS: Windows 11 / Ubuntu 22.04 / macOS 13
-- Python: 3.10.5
-- Sortify: 1.0.0
+- OS: Windows 11 Pro
+- Python: 3.11.5
+- Sortify: 1.2.0
 
-**Error Messages:**
+**Error Log:**
 ```
-Paste error messages here
+FileNotFoundError: [Errno 2] No such file or directory: 'C:\\temp\\test.pdf'
 ```
 
 **Screenshots:**
-[If applicable]
+[Attach if helpful]
 ```
-
-## 💡 Feature Requests
-
-Feature requests are welcome! Please:
-
-1. Check if the feature already exists or is requested
-2. Clearly describe the feature and use case
-3. Explain why it would be useful
-4. Consider implementation complexity
-
-## 📚 Resources
-
-- [Python PEP 8 Style Guide](https://pep8.org/)
-- [PyQt6 Documentation](https://www.riverbankcomputing.com/static/Docs/PyQt6/)
-- [spaCy Documentation](https://spacy.io/)
-- [GitHub Flow Guide](https://guides.github.com/introduction/flow/)
-
-## 🙏 Thank You!
-
-Every contribution helps make Sortify better. Thank you for taking the time to contribute!
 
 ---
 
-**Questions?** Feel free to reach out:
-- 📧 Email: rolanlobo901@gmail.com
+## 💡 Want a Feature? Let's Hear It!
+
+We **love** feature requests! Here's how to suggest one:
+
+1. **Check existing issues** to avoid duplicates
+2. **Describe the feature** clearly (what does it do?)
+3. **Explain the use case** (why is it useful?)
+4. **Be realistic** (e.g., "Add AI voice control" is cool but out of scope)
+
+**Example:**
+> **Feature Request:** Add support for Markdown file categorization
+> 
+> **Use Case:** As a developer, I have tons of `.md` files (READMEs, notes, docs) that get mixed with regular text files. I'd like Sortify to detect and categorize Markdown files separately.
+> 
+> **Why It's Useful:** Better organization for devs and technical writers.
+
+---
+
+## 📚 Resources for Contributors
+
+- [Python PEP 8 Style Guide](https://pep8.org/) - The holy grail of Python style
+- [PyQt6 Documentation](https://www.riverbankcomputing.com/static/Docs/PyQt6/) - For UI wizards
+- [spaCy Documentation](https://spacy.io/) - For NLP nerds
+- [GitHub Flow Guide](https://guides.github.com/introduction/flow/) - Git workflow basics
+
+---
+
+## 🙏 Thank You!
+
+Seriously, **thank you** for contributing! Whether you're fixing a typo or adding a major feature, every bit helps make Sortify better for everyone.
+
+If you have questions, don't hesitate to reach out:
+- 📧 Email: [rolanlobo901@gmail.com](mailto:rolanlobo901@gmail.com)
 - 🐞 Issues: [GitHub Issues](https://github.com/Mrtracker-new/Sortify/issues)
+
+---
+
+**Now go forth and code! 🚀**
