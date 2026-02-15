@@ -836,7 +836,22 @@ class HistoryManager:
             
             # Check if the file exists at the target location
             if not os.path.exists(target):
-                return False, f"File no longer exists at {target}"
+                return False, (
+                    f"Cannot undo: File no longer exists at {target}.\n"
+                    f"The file may have been manually moved or deleted.\n"
+                    f"Expected location: {target}\n"
+                    f"Original location: {source}"
+                )
+            
+            # Check if the source path is already occupied
+            if os.path.exists(source):
+                return False, (
+                    f"Cannot undo: Original location is already occupied.\n"
+                    f"A file already exists at: {source}\n"
+                    f"This may be a different file that was created after the original move.\n"
+                    f"Current file location: {target}\n"
+                    f"Please manually verify and move the file if needed."
+                )
                 
             # Try to move the file back to its original location
             try:
