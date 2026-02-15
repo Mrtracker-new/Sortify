@@ -651,13 +651,12 @@ class HistoryManager:
     def get_history_by_operation_type(self, operation_type, limit=100, offset=0):
         """Get history entries filtered by operation type"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute(
-                    "SELECT id, file_name, original_path, new_path, file_size, operation_type, timestamp, status FROM history WHERE operation_type = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                    (operation_type, limit, offset)
-                )
-                return cursor.fetchall()
+            results = self.db_manager.execute_query(
+                "SELECT id, file_name, original_path, new_path, file_size, operation_type, timestamp, status FROM history WHERE operation_type = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                params=(operation_type, limit, offset),
+                fetch_mode='all'
+            )
+            return results if results else []
         except sqlite3.Error as e:
             logging.error(f"Error getting history by operation type: {str(e)}")
             return []
@@ -665,13 +664,12 @@ class HistoryManager:
     def get_history_by_status(self, status, limit=100, offset=0):
         """Get history entries filtered by status"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute(
-                    "SELECT id, file_name, original_path, new_path, file_size, operation_type, timestamp, status FROM history WHERE status = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                    (status, limit, offset)
-                )
-                return cursor.fetchall()
+            results = self.db_manager.execute_query(
+                "SELECT id, file_name, original_path, new_path, file_size, operation_type, timestamp, status FROM history WHERE status = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                params=(status, limit, offset),
+                fetch_mode='all'
+            )
+            return results if results else []
         except sqlite3.Error as e:
             logging.error(f"Error getting history by status: {str(e)}")
             return []
@@ -679,13 +677,12 @@ class HistoryManager:
     def get_history_by_date_range(self, start_date, end_date, limit=100, offset=0):
         """Get history entries within a date range"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute(
-                    "SELECT id, file_name, original_path, new_path, file_size, operation_type, timestamp, status FROM history WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                    (start_date, end_date, limit, offset)
-                )
-                return cursor.fetchall()
+            results = self.db_manager.execute_query(
+                "SELECT id, file_name, original_path, new_path, file_size, operation_type, timestamp, status FROM history WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                params=(start_date, end_date, limit, offset),
+                fetch_mode='all'
+            )
+            return results if results else []
         except sqlite3.Error as e:
             logging.error(f"Error getting history by date range: {str(e)}")
             return []
@@ -693,13 +690,12 @@ class HistoryManager:
     def get_history_by_file_name(self, file_name, limit=100, offset=0):
         """Get history entries filtered by file name (partial match)"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute(
-                    "SELECT id, file_name, original_path, new_path, file_size, operation_type, timestamp, status FROM history WHERE file_name LIKE ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                    (f"%{file_name}%", limit, offset)
-                )
-                return cursor.fetchall()
+            results = self.db_manager.execute_query(
+                "SELECT id, file_name, original_path, new_path, file_size, operation_type, timestamp, status FROM history WHERE file_name LIKE ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                params=(f"%{file_name}%", limit, offset),
+                fetch_mode='all'
+            )
+            return results if results else []
         except sqlite3.Error as e:
             logging.error(f"Error getting history by file name: {str(e)}")
             return []
@@ -707,13 +703,12 @@ class HistoryManager:
     def get_history_by_path(self, path, limit=100, offset=0):
         """Get history entries filtered by original or new path (partial match)"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute(
-                    "SELECT id, file_name, original_path, new_path, file_size, operation_type, timestamp, status FROM history WHERE original_path LIKE ? OR new_path LIKE ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                    (f"%{path}%", f"%{path}%", limit, offset)
-                )
-                return cursor.fetchall()
+            results = self.db_manager.execute_query(
+                "SELECT id, file_name, original_path, new_path, file_size, operation_type, timestamp, status FROM history WHERE original_path LIKE ? OR new_path LIKE ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                params=(f"%{path}%", f"%{path}%", limit, offset),
+                fetch_mode='all'
+            )
+            return results if results else []
         except sqlite3.Error as e:
             logging.error(f"Error getting history by path: {str(e)}")
             return []
@@ -721,10 +716,11 @@ class HistoryManager:
     def get_operation_count(self):
         """Get the total number of operations"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM operations")
-                return cursor.fetchone()[0]
+            result = self.db_manager.execute_query(
+                "SELECT COUNT(*) FROM operations",
+                fetch_mode='one'
+            )
+            return result[0] if result else 0
         except sqlite3.Error as e:
             logging.error(f"Error getting operation count: {str(e)}")
             return 0
@@ -732,10 +728,11 @@ class HistoryManager:
     def get_history_count(self):
         """Get the total number of history entries"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM history")
-                return cursor.fetchone()[0]
+            result = self.db_manager.execute_query(
+                "SELECT COUNT(*) FROM history",
+                fetch_mode='one'
+            )
+            return result[0] if result else 0
         except sqlite3.Error as e:
             logging.error(f"Error getting history count: {str(e)}")
             return 0
@@ -743,10 +740,12 @@ class HistoryManager:
     def delete_operation(self, operation_id):
         """Delete an operation by ID"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute("DELETE FROM operations WHERE id = ?", (operation_id,))
-                return True
+            self.db_manager.execute_query(
+                "DELETE FROM operations WHERE id = ?",
+                params=(operation_id,),
+                fetch_mode='none'
+            )
+            return True
         except sqlite3.Error as e:
             logging.error(f"Error deleting operation: {str(e)}")
             return False
@@ -754,10 +753,12 @@ class HistoryManager:
     def delete_history_entry(self, entry_id):
         """Delete a history entry by ID"""
         try:
-            with self.lock:
-                cursor = self.conn.cursor()
-                cursor.execute("DELETE FROM history WHERE id = ?", (entry_id,))
-                return True
+            self.db_manager.execute_query(
+                "DELETE FROM history WHERE id = ?",
+                params=(entry_id,),
+                fetch_mode='none'
+            )
+            return True
         except sqlite3.Error as e:
             logging.error(f"Error deleting history entry: {str(e)}")
             return False
