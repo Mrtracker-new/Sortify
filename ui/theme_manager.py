@@ -62,8 +62,10 @@ class ThemeManager:
             with open(qss_path, "r", encoding="utf-8") as f:
                 stylesheet = f.read()
 
-            # Inject variables
-            for key, value in self.palette.items():
+            # Inject variables - sort by length (longest first) to prevent partial matches
+            # e.g., replace "@primary_hover" before "@primary" to avoid "#0d6efd_hover"
+            sorted_palette = sorted(self.palette.items(), key=lambda x: len(x[0]), reverse=True)
+            for key, value in sorted_palette:
                 stylesheet = stylesheet.replace(key, value)
             
             return stylesheet
