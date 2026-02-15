@@ -11,6 +11,12 @@ from pathlib import Path
 # Create a logger
 logger = logging.getLogger('Sortify.History')
 
+# Configuration constants for history retention
+MAX_HISTORY_DAYS = 90  # Keep history for last 90 days
+MAX_HISTORY_RECORDS = 10000  # Maximum number of history records to retain
+CLEANUP_ON_STARTUP = True  # Enable automatic cleanup on startup
+DATABASE_SIZE_WARNING_MB = 100  # Warn if database exceeds this size in MB
+
 def get_data_dir():
     """Get the data directory path, handling both development and frozen environments"""
     # Check if running as executable
@@ -254,14 +260,42 @@ class HistoryManager:
             )
             logger.info("Composite session+timestamp index ensured")
             
-            # Auto-cleanup old history entries (older than 90 days)
-            logger.info("Running automatic cleanup of old history entries")
-            try:
-                self.clear_old_history(days_old=90)
-                logger.info("Automatic cleanup completed")
-            except Exception as cleanup_error:
-                # Don't fail migration if cleanup fails - just log it
-                logger.warning(f"Automatic cleanup failed (non-fatal): {cleanup_error}")
+            # Auto-cleanup old history entries if enabled
+            if CLEANUP_ON_STARTUP:
+                logger.info("Running automatic history cleanup on startup")
+                try:
+                    # Get initial database stats
+                    initial_stats = self.get_database_stats()
+                    logger.info(
+                        f"Database stats before cleanup: "
+                        f"{initial_stats.get('total_records', 0)} records, "
+                        f"{initial_stats.get('database_size_mb', 0):.2f} MB"
+                    )
+                    
+                    # Run comprehensive cleanup
+                    cleanup_stats = self.cleanup_history(
+                        days_old=MAX_HISTORY_DAYS,
+                        max_records=MAX_HISTORY_RECORDS
+                    )
+                    
+                    if cleanup_stats.get('total_deleted', 0) > 0:
+                        logger.info(
+                            f"Cleanup removed {cleanup_stats['total_deleted']} records, "
+                            f"saved {cleanup_stats.get('space_saved_mb', 0):.2f} MB"
+                        )
+                    
+                    # Check database health
+                    is_healthy, warnings = self.check_database_health()
+                    if not is_healthy:
+                        for warning in warnings:
+                            logger.warning(f"Database health: {warning}")
+                    
+                except Exception as cleanup_error:
+                    # Don't fail migration if cleanup fails - just log it
+                    logger.warning(f"Automatic cleanup failed (non-fatal): {cleanup_error}")
+            else:
+                logger.info("Automatic cleanup on startup is disabled (CLEANUP_ON_STARTUP=False)")
+            
             
         except sqlite3.Error as e:
             logger.error(f"Database migration failed: {e}")
@@ -916,8 +950,31 @@ class HistoryManager:
         return results if results else []
 
     def clear_old_history(self, days_old=90):
-        """Clear history entries older than specified days (default: 90 days)"""
+        """Clear history entries older than specified days (default: 90 days)
+        
+        Args:
+            days_old: Number of days to retain (entries older than this are deleted)
+            
+        Returns:
+            int: Number of records deleted, or -1 on error
+        """
         try:
+            # Count records before deletion for logging
+            count_result = self.db_manager.execute_query(
+                """
+                SELECT COUNT(*) FROM history 
+                WHERE datetime(timestamp) < datetime('now', ?)
+                """,
+                params=(f"-{days_old} days",),
+                fetch_mode='one'
+            )
+            count_to_delete = count_result[0] if count_result else 0
+            
+            if count_to_delete == 0:
+                logger.info(f"No history entries older than {days_old} days to delete")
+                return 0
+            
+            # Delete old records
             self.db_manager.execute_query(
                 """
                 DELETE FROM history 
@@ -926,11 +983,243 @@ class HistoryManager:
                 params=(f"-{days_old} days",),
                 fetch_mode='none'
             )
-            logging.info(f"Cleared history entries older than {days_old} days")
-            return True
+            
+            # Vacuum database to reclaim space
+            try:
+                self.db_manager.execute_query("VACUUM", fetch_mode='none')
+                logger.info("Database vacuumed to reclaim space")
+            except Exception as vacuum_error:
+                logger.warning(f"Failed to vacuum database: {vacuum_error}")
+            
+            logger.info(f"Cleared {count_to_delete} history entries older than {days_old} days")
+            return count_to_delete
         except sqlite3.Error as e:
-            logging.error(f"Database error during clear_old_history: {str(e)}")
-            return False
+            logger.error(f"Database error during clear_old_history: {str(e)}")
+            return -1
         except Exception as e:
-            logging.error(f"Error clearing old history: {str(e)}")
-            return False
+            logger.error(f"Error clearing old history: {str(e)}")
+            return -1
+    
+    def enforce_max_history_size(self, max_records=MAX_HISTORY_RECORDS):
+        """Enforce maximum number of history records by deleting oldest entries
+        
+        Args:
+            max_records: Maximum number of records to retain
+            
+        Returns:
+            int: Number of records deleted, or -1 on error
+        """
+        try:
+            # Count total records
+            count_result = self.db_manager.execute_query(
+                "SELECT COUNT(*) FROM history",
+                fetch_mode='one'
+            )
+            total_records = count_result[0] if count_result else 0
+            
+            if total_records <= max_records:
+                logger.info(f"History size ({total_records} records) within limit ({max_records})")
+                return 0
+            
+            records_to_delete = total_records - max_records
+            
+            # Delete oldest records, preserving active sessions
+            # First, try to delete from completed sessions only
+            self.db_manager.execute_query(
+                """
+                DELETE FROM history 
+                WHERE id IN (
+                    SELECT id FROM history 
+                    WHERE status IN ('success', 'undone')
+                    ORDER BY timestamp ASC 
+                    LIMIT ?
+                )
+                """,
+                params=(records_to_delete,),
+                fetch_mode='none'
+            )
+            
+            # Vacuum database to reclaim space
+            try:
+                self.db_manager.execute_query("VACUUM", fetch_mode='none')
+                logger.info("Database vacuumed to reclaim space")
+            except Exception as vacuum_error:
+                logger.warning(f"Failed to vacuum database: {vacuum_error}")
+            
+            logger.info(f"Deleted {records_to_delete} oldest records to enforce limit of {max_records}")
+            return records_to_delete
+        except sqlite3.Error as e:
+            logger.error(f"Database error during enforce_max_history_size: {str(e)}")
+            return -1
+        except Exception as e:
+            logger.error(f"Error enforcing max history size: {str(e)}")
+            return -1
+    
+    def cleanup_history(self, days_old=MAX_HISTORY_DAYS, max_records=MAX_HISTORY_RECORDS):
+        """Comprehensive history cleanup using both time-based and count-based policies
+        
+        Applies both retention policies and uses whichever is more restrictive.
+        
+        Args:
+            days_old: Maximum age of records to keep
+            max_records: Maximum number of records to keep
+            
+        Returns:
+            dict: Statistics about cleanup operation
+        """
+        try:
+            logger.info(f"Starting history cleanup (max_age={days_old} days, max_records={max_records})")
+            
+            # Get stats before cleanup
+            stats_before = self.get_database_stats()
+            
+            # Apply time-based cleanup
+            time_deleted = self.clear_old_history(days_old=days_old)
+            
+            # Apply count-based cleanup
+            count_deleted = self.enforce_max_history_size(max_records=max_records)
+            
+            # Get stats after cleanup
+            stats_after = self.get_database_stats()
+            
+            cleanup_stats = {
+                'time_based_deleted': time_deleted if time_deleted >= 0 else 0,
+                'count_based_deleted': count_deleted if count_deleted >= 0 else 0,
+                'total_deleted': (time_deleted if time_deleted >= 0 else 0) + (count_deleted if count_deleted >= 0 else 0),
+                'records_before': stats_before.get('total_records', 0),
+                'records_after': stats_after.get('total_records', 0),
+                'size_before_mb': stats_before.get('database_size_mb', 0),
+                'size_after_mb': stats_after.get('database_size_mb', 0),
+                'space_saved_mb': stats_before.get('database_size_mb', 0) - stats_after.get('database_size_mb', 0)
+            }
+            
+            logger.info(
+                f"Cleanup complete: deleted {cleanup_stats['total_deleted']} records, "
+                f"saved {cleanup_stats['space_saved_mb']:.2f} MB "
+                f"({cleanup_stats['records_before']} -> {cleanup_stats['records_after']} records)"
+            )
+            
+            return cleanup_stats
+        except Exception as e:
+            logger.error(f"Error during cleanup_history: {e}")
+            return {
+                'error': str(e),
+                'total_deleted': 0,
+                'time_based_deleted': 0,
+                'count_based_deleted': 0
+            }
+    
+    def get_database_stats(self):
+        """Get database statistics including size, record count, and age range
+        
+        Returns:
+            dict: Database statistics
+        """
+        try:
+            stats = {}
+            
+            # Get database file size
+            if self.db_path.exists():
+                db_size_bytes = self.db_path.stat().st_size
+                stats['database_size_bytes'] = db_size_bytes
+                stats['database_size_mb'] = db_size_bytes / (1024 * 1024)
+            else:
+                stats['database_size_bytes'] = 0
+                stats['database_size_mb'] = 0
+            
+            # Get total record count
+            count_result = self.db_manager.execute_query(
+                "SELECT COUNT(*) FROM history",
+                fetch_mode='one'
+            )
+            stats['total_records'] = count_result[0] if count_result else 0
+            
+            # Get oldest and newest timestamps
+            time_range = self.db_manager.execute_query(
+                "SELECT MIN(timestamp), MAX(timestamp) FROM history",
+                fetch_mode='one'
+            )
+            if time_range and time_range[0]:
+                stats['oldest_record'] = time_range[0]
+                stats['newest_record'] = time_range[1]
+                
+                # Calculate age span
+                from datetime import datetime
+                try:
+                    oldest = datetime.fromisoformat(time_range[0])
+                    newest = datetime.fromisoformat(time_range[1])
+                    age_span = (newest - oldest).days
+                    stats['age_span_days'] = age_span
+                    
+                    # Calculate average records per day
+                    if age_span > 0:
+                        stats['avg_records_per_day'] = stats['total_records'] / age_span
+                    else:
+                        stats['avg_records_per_day'] = stats['total_records']
+                except Exception as date_error:
+                    logger.warning(f"Error calculating date statistics: {date_error}")
+            else:
+                stats['oldest_record'] = None
+                stats['newest_record'] = None
+                stats['age_span_days'] = 0
+                stats['avg_records_per_day'] = 0
+            
+            # Get status breakdown
+            status_counts = self.db_manager.execute_query(
+                "SELECT status, COUNT(*) FROM history GROUP BY status",
+                fetch_mode='all'
+            )
+            stats['status_breakdown'] = {row[0]: row[1] for row in status_counts} if status_counts else {}
+            
+            return stats
+        except Exception as e:
+            logger.error(f"Error getting database stats: {e}")
+            return {'error': str(e)}
+    
+    def check_database_health(self):
+        """Check database health and warn if issues detected
+        
+        Returns:
+            tuple: (is_healthy: bool, warnings: list of str)
+        """
+        try:
+            warnings = []
+            stats = self.get_database_stats()
+            
+            # Check database size
+            db_size_mb = stats.get('database_size_mb', 0)
+            if db_size_mb > DATABASE_SIZE_WARNING_MB:
+                warnings.append(
+                    f"Database size ({db_size_mb:.2f} MB) exceeds recommended limit ({DATABASE_SIZE_WARNING_MB} MB). "
+                    f"Consider reducing MAX_HISTORY_DAYS or MAX_HISTORY_RECORDS."
+                )
+            
+            # Check record count
+            total_records = stats.get('total_records', 0)
+            if total_records > MAX_HISTORY_RECORDS * 1.5:
+                warnings.append(
+                    f"Record count ({total_records}) significantly exceeds limit ({MAX_HISTORY_RECORDS}). "
+                    f"Automatic cleanup may not be working properly."
+                )
+            
+            # Check growth rate
+            avg_per_day = stats.get('avg_records_per_day', 0)
+            if avg_per_day > 500:
+                warnings.append(
+                    f"High growth rate detected ({avg_per_day:.1f} records/day). "
+                    f"Database may fill quickly. Consider more frequent cleanup or lower retention."
+                )
+            
+            is_healthy = len(warnings) == 0
+            
+            if warnings:
+                logger.warning(f"Database health check found {len(warnings)} issue(s)")
+                for warning in warnings:
+                    logger.warning(f"  - {warning}")
+            else:
+                logger.info("Database health check passed")
+            
+            return is_healthy, warnings
+        except Exception as e:
+            logger.error(f"Error checking database health: {e}")
+            return False, [f"Health check failed: {str(e)}"]
