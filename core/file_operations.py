@@ -1070,7 +1070,11 @@ class FileOperations:
             elif "invalid" in str(e).lower():
                 error_msg = (
                     f"Invalid characters in new file name: '{new_path.name}'.\n\n"
-                    f"Remove special characters like: \\ / : * ? \" < > |"
+                    f"Windows does not allow these characters in filenames:\n"
+                    f"  \\ (backslash)  / (forward slash)  : (colon)\n"
+                    f"  * (asterisk)   ? (question mark)  \" (quote)\n"
+                    f"  < (less than)  > (greater than)  | (pipe)\n\n"
+                    f"Please remove these characters and try again."
                 )
             else:
                 error_msg = f"OS error renaming '{file_path.name}': {e}"
