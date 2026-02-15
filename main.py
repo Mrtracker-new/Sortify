@@ -135,6 +135,145 @@ def verify_database_connection(db_path, max_retries=3, retry_delay=1.0):
     logger.error(f"Failed to verify database connection after {max_retries} attempts")
     return False
 
+def log_corruption_details(db_path, integrity_result):
+    """Log detailed information about database corruption"""
+    logger.error("="*60)
+    logger.error("DATABASE CORRUPTION DETECTED")
+    logger.error("="*60)
+    logger.error(f"Database path: {db_path}")
+    logger.error(f"Integrity check result: {integrity_result}")
+    logger.error(f"Database size: {db_path.stat().st_size if db_path.exists() else 'N/A'} bytes")
+    logger.error("="*60)
+
+def attempt_database_repair(db_path):
+    """Attempt to repair corrupted database using REINDEX and VACUUM
+    
+    Returns:
+        tuple: (success: bool, message: str)
+    """
+    logger.info("Attempting database repair...")
+    
+    try:
+        # First, try REINDEX to rebuild indexes
+        logger.info("Stage 1: Attempting REINDEX...")
+        try:
+            conn = sqlite3.connect(str(db_path), timeout=30.0)
+            cursor = conn.cursor()
+            cursor.execute("REINDEX")
+            conn.commit()
+            conn.close()
+            logger.info("✓ REINDEX completed successfully")
+            
+            # Check if integrity is fixed
+            conn = sqlite3.connect(str(db_path), timeout=30.0)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA integrity_check")
+            result = cursor.fetchone()[0]
+            conn.close()
+            
+            if result == "ok":
+                logger.info("✓ Database repaired successfully with REINDEX!")
+                return True, "Database repaired successfully with REINDEX"
+            else:
+                logger.warning(f"REINDEX completed but integrity still failing: {result}")
+        except Exception as e:
+            logger.warning(f"REINDEX failed: {e}")
+        
+        # Second, try VACUUM to rebuild the database file
+        logger.info("Stage 2: Attempting VACUUM...")
+        try:
+            conn = sqlite3.connect(str(db_path), timeout=30.0)
+            cursor = conn.cursor()
+            cursor.execute("VACUUM")
+            conn.commit()
+            conn.close()
+            logger.info("✓ VACUUM completed successfully")
+            
+            # Check if integrity is fixed
+            conn = sqlite3.connect(str(db_path), timeout=30.0)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA integrity_check")
+            result = cursor.fetchone()[0]
+            conn.close()
+            
+            if result == "ok":
+                logger.info("✓ Database repaired successfully with VACUUM!")
+                return True, "Database repaired successfully with VACUUM"
+            else:
+                logger.warning(f"VACUUM completed but integrity still failing: {result}")
+        except Exception as e:
+            logger.warning(f"VACUUM failed: {e}")
+        
+        # If both repairs failed
+        logger.error("All repair attempts failed")
+        return False, "All repair attempts (REINDEX, VACUUM) failed"
+        
+    except Exception as e:
+        logger.error(f"Critical error during repair attempt: {e}")
+        return False, f"Critical error during repair: {e}"
+
+def offer_database_recovery(db_path, backup_path):
+    """Offer user options for database recovery when repairs fail
+    
+    Returns:
+        str: User's choice - 'create_new', 'exit', or None if GUI unavailable
+    """
+    logger.info("Offering database recovery options to user...")
+    
+    # Check if we're in GUI mode
+    if QApplication.instance():
+        # GUI mode - show dialog
+        from PyQt6.QtWidgets import QMessageBox
+        
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Critical)
+        msg.setWindowTitle("Database Corruption Detected")
+        msg.setText(
+            "The application database is corrupted and cannot be repaired automatically.\n\n"
+            f"A backup has been created at:\n{backup_path}\n\n"
+            "What would you like to do?"
+        )
+        msg.setInformativeText(
+            "Option 1: Create a new database (you will lose all history)\n"
+            "Option 2: Exit and seek help (backup is preserved for manual recovery)"
+        )
+        
+        create_btn = msg.addButton("Create New Database", QMessageBox.ButtonRole.DestructiveRole)
+        exit_btn = msg.addButton("Exit Application", QMessageBox.ButtonRole.RejectRole)
+        msg.setDefaultButton(exit_btn)
+        
+        msg.exec()
+        
+        if msg.clickedButton() == create_btn:
+            logger.warning("User chose to create new database (data will be lost)")
+            return 'create_new'
+        else:
+            logger.info("User chose to exit and preserve backup")
+            return 'exit'
+    else:
+        # CLI mode or no GUI available - print to console
+        print("\n" + "="*60)
+        print("DATABASE CORRUPTION DETECTED")
+        print("="*60)
+        print(f"The database is corrupted and cannot be repaired automatically.")
+        print(f"A backup has been created at: {backup_path}")
+        print("\nOptions:")
+        print("  1. Create new database (lose all history)")
+        print("  2. Exit application (preserve backup for manual recovery)")
+        print("="*60)
+        
+        try:
+            choice = input("Enter your choice (1 or 2): ").strip()
+            if choice == '1':
+                logger.warning("User chose to create new database (data will be lost)")
+                return 'create_new'
+            else:
+                logger.info("User chose to exit and preserve backup")
+                return 'exit'
+        except (EOFError, KeyboardInterrupt):
+            logger.info("User interrupted - exiting")
+            return 'exit'
+
 # Ensure database file exists
 def ensure_database_file():
     data_dir = get_data_dir()
@@ -166,24 +305,69 @@ def ensure_database_file():
             conn.close()
             
             if result != "ok":
-                logger.warning(f"Database integrity check failed: {result}")
-                # Backup and recreate database
-                backup_path = db_path.with_suffix(".db.bak")
-                try:
-                    if backup_path.exists():
-                        backup_path.unlink()
-                    db_path.rename(backup_path)
-                    logger.info(f"Renamed corrupted database to {backup_path}")
-                    create_new_database(db_path)
-                except Exception as e:
-                    logger.error(f"Failed to backup and recreate database: {e}")
-                    # Try to delete and recreate
+                # Log detailed corruption information
+                log_corruption_details(db_path, result)
+                
+                # STAGE 1: Attempt repairs (REINDEX, VACUUM)
+                logger.info("Stage 1: Attempting non-destructive repairs...")
+                repair_success, repair_message = attempt_database_repair(db_path)
+                
+                if repair_success:
+                    logger.info(f"✓ Database repaired successfully: {repair_message}")
+                    logger.info("Application will continue with repaired database")
+                else:
+                    logger.error(f"✗ Repair failed: {repair_message}")
+                    
+                    # STAGE 2: Create timestamped backup (preserve existing .db.bak)
+                    logger.info("Stage 2: Creating timestamped backup...")
+                    from datetime import datetime
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_path = db_path.parent / f"history.db.backup_{timestamp}"
+                    
                     try:
-                        db_path.unlink()
-                        logger.info("Deleted corrupted database")
-                        create_new_database(db_path)
-                    except Exception as del_error:
-                        logger.error(f"Failed to delete corrupted database: {del_error}")
+                        # Copy corrupted database to backup (don't use rename to preserve original)
+                        import shutil
+                        shutil.copy2(db_path, backup_path)
+                        logger.info(f"✓ Created backup at: {backup_path}")
+                        
+                        # Also preserve as .db.bak if it doesn't exist (for compatibility)
+                        legacy_backup = db_path.with_suffix(".db.bak")
+                        if not legacy_backup.exists():
+                            shutil.copy2(db_path, legacy_backup)
+                            logger.info(f"✓ Created legacy backup at: {legacy_backup}")
+                        else:
+                            logger.info(f"Preserving existing backup at: {legacy_backup}")
+                            
+                    except Exception as backup_error:
+                        logger.error(f"Failed to create backup: {backup_error}")
+                        backup_path = db_path.with_suffix(".db.bak")  # Fallback path for user message
+                    
+                    # STAGE 3: Offer user recovery options
+                    logger.info("Stage 3: Requesting user decision...")
+                    user_choice = offer_database_recovery(db_path, backup_path)
+                    
+                    if user_choice == 'create_new':
+                        # STAGE 4: User chose to recreate database (data loss accepted)
+                        logger.warning("Stage 4: Recreating database per user request")
+                        logger.warning(f"User accepted data loss. Backup preserved at: {backup_path}")
+                        
+                        try:
+                            db_path.unlink()
+                            logger.info("Deleted corrupted database")
+                            create_new_database(db_path)
+                            logger.info(f"Created new database. Old data preserved at: {backup_path}")
+                        except Exception as e:
+                            logger.error(f"Failed to recreate database: {e}")
+                            # Try one more time without deletion
+                            try:
+                                create_new_database(db_path)
+                            except Exception as final_error:
+                                logger.critical(f"Fatal: Cannot create database: {final_error}")
+                    else:
+                        # User chose to exit - preserve backup and exit gracefully
+                        logger.info("User chose to exit. Backup preserved for manual recovery.")
+                        logger.info(f"Backup location: {backup_path}")
+                        return False
             else:
                 logger.info("Database integrity check passed")
         except Exception as e:
