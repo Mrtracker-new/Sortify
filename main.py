@@ -9,6 +9,18 @@ import argparse
 import atexit
 from pathlib import Path
 
+# Windows-specific imports for singleton enforcement
+if os.name == 'nt':
+    try:
+        import win32event
+        import win32api
+        import winerror
+    except ImportError:
+        # pywin32 not available - singleton check will be skipped
+        win32event = None
+        win32api = None
+        winerror = None
+
 # ====================================================================
 # FIX: PyTorch DLL Loading on Windows
 # ====================================================================
@@ -63,6 +75,9 @@ if not getattr(sys, 'frozen', False):
 
 # Create a logger
 logger = logging.getLogger('Sortify')
+
+# Global mutex handle for singleton enforcement
+_app_mutex = None
 
 # Log uncaught exceptions
 def exception_hook(exctype, value, tb):
@@ -538,6 +553,51 @@ def attempt_fix_database_permissions(db_path):
         logger.error(f"Failed to fix database permissions: {e}")
         return False
 
+def check_single_instance():
+    """Check if another instance is already running using Windows mutex
+    
+    Returns:
+        bool: True if this is the only instance, False if another is running
+    """
+    global _app_mutex
+    
+    # Only enforce singleton on Windows with pywin32 available
+    if os.name != 'nt' or win32event is None:
+        logger.info("Singleton check skipped (not Windows or pywin32 unavailable)")
+        return True
+    
+    mutex_name = "Global\\Sortify_SingleInstance_Mutex"
+    
+    try:
+        # Try to create a named mutex
+        _app_mutex = win32event.CreateMutex(None, False, mutex_name)
+        last_error = win32api.GetLastError()
+        
+        if last_error == winerror.ERROR_ALREADY_EXISTS:
+            # Another instance is already running
+            logger.warning("Another instance of Sortify is already running")
+            return False
+        
+        # Successfully acquired mutex - we're the only instance
+        logger.info("Application mutex acquired successfully")
+        return True
+        
+    except Exception as e:
+        logger.warning(f"Failed to create mutex: {e}")
+        # If mutex creation fails, allow the app to run to avoid blocking users
+        return True
+
+def release_mutex():
+    """Release the application mutex on exit"""
+    global _app_mutex
+    
+    if _app_mutex and os.name == 'nt' and win32api is not None:
+        try:
+            win32api.CloseHandle(_app_mutex)
+            logger.info("Application mutex released")
+        except Exception as e:
+            logger.error(f"Failed to release mutex: {e}")
+
 def parse_arguments():
     """Parse command-line arguments"""
     parser = argparse.ArgumentParser(
@@ -695,6 +755,24 @@ def main():
     if args.dry_run or args.source:
         # Run in CLI mode
         return run_cli_mode(args)
+    
+    # Check for single instance (GUI mode only) BEFORE creating QApplication
+    if not check_single_instance():
+        # Another instance is already running - show error and exit
+        # Create minimal QApplication just for the error dialog
+        app = QApplication(sys.argv)
+        QMessageBox.critical(
+            None,
+            "Sortify Already Running",
+            "Another instance of Sortify is already running.\n\n"
+            "Please use the existing window or close it before starting a new instance.\n\n"
+            "This restriction prevents database conflicts."
+        )
+        logger.warning("Exiting: Another instance is already running")
+        return 1
+    
+    # Register mutex cleanup handler
+    atexit.register(release_mutex)
     
     # Otherwise, run in GUI mode (original behavior)
     # Initialize application
