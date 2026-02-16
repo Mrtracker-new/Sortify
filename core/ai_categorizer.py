@@ -30,12 +30,7 @@ except ImportError:
     logging.warning("python-docx module not found. Word document extraction will be limited.")
     PYTHON_DOCX_AVAILABLE = False
 
-try:
-    from PIL import Image
-    PILLOW_AVAILABLE = True
-except ImportError:
-    logging.warning("Pillow module not found. Image handling will be limited.")
-    PILLOW_AVAILABLE = False
+
 
 # Try to import sentence-transformers, but make it optional
 try:
