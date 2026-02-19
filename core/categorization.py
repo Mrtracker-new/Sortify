@@ -101,7 +101,25 @@ class FileCategorizationAI:
         if self.nlp is None and SPACY_AVAILABLE:
             try:
                 logger.info("Attempting to load spaCy model")
-                self.nlp = spacy.load('en_core_web_sm')
+                # When running as a PyInstaller bundle, load the model by direct path.
+                # spacy.load('en_core_web_sm') relies on entry points which don't exist
+                # in a frozen bundle — loading by path always works.
+                if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+                    import os
+                    model_path = os.path.join(sys._MEIPASS, 'en_core_web_sm')
+                    logger.info(f"Frozen bundle: loading spaCy model from path: {model_path}")
+                    # The package is bundled as en_core_web_sm/en_core_web_sm-X.Y.Z/
+                    # (a versioned subfolder that contains config.cfg). Probe for it.
+                    if os.path.isdir(model_path) and not os.path.isfile(os.path.join(model_path, 'config.cfg')):
+                        for sub in os.listdir(model_path):
+                            candidate = os.path.join(model_path, sub)
+                            if os.path.isdir(candidate) and os.path.isfile(os.path.join(candidate, 'config.cfg')):
+                                model_path = candidate
+                                logger.info(f"Resolved versioned model subfolder: {model_path}")
+                                break
+                    self.nlp = spacy.load(model_path)
+                else:
+                    self.nlp = spacy.load('en_core_web_sm')
                 self.ai_enabled = True
                 logger.info("✓ spaCy model loaded - AI categorization enabled")
             except OSError as e:
