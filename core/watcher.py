@@ -5,6 +5,7 @@ import time
 import logging
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from .file_operations import FileOperations
 from .categorization import FileCategorizationAI
@@ -14,13 +15,15 @@ logger = logging.getLogger('Sortify.Watcher')
 
 class FileChangeHandler(FileSystemEventHandler):
     """Enhanced handler for file system events"""
-    def __init__(self, file_ops, categorizer):
+    def __init__(self, file_ops, categorizer, executor: ThreadPoolExecutor = None):
         self.file_ops = file_ops
         self.categorizer = categorizer
         self.processing_files = set()  # Track files being processed to avoid duplicates
         self.lock = threading.Lock()  # Thread safety for the processing_files set
         self.min_file_age = 1.0  # Minimum file age in seconds before processing
         self.ignored_patterns = ['.tmp', '.crdownload', '.part', '.partial', '.download', '~$']  # Temporary file patterns to ignore
+        # Shared thread pool — provided by FolderWatcher so it can be shut down cleanly
+        self._executor = executor
         
     def on_created(self, event):
         """Handle file creation events with improved handling"""
@@ -32,8 +35,11 @@ class FileChangeHandler(FileSystemEventHandler):
                 logger.debug(f"Ignoring temporary file: {file_path}")
                 return
                 
-            # Process the file in a separate thread to avoid blocking the watcher
-            threading.Thread(target=self._process_file, args=(file_path,)).start()
+            # Submit to thread pool — returns immediately, keeping the watchdog loop unblocked
+            if self._executor:
+                self._executor.submit(self._process_file, file_path)
+            else:
+                threading.Thread(target=self._process_file, args=(file_path,), daemon=True).start()
     
     def on_moved(self, event):
         """Handle file move events"""
@@ -52,8 +58,11 @@ class FileChangeHandler(FileSystemEventHandler):
                     logger.debug(f"Ignoring file moved to destination directory: {dest_path}")
                     return
                 
-            # Process the moved file in a separate thread
-            threading.Thread(target=self._process_file, args=(dest_path,)).start()
+            # Submit to thread pool — returns immediately, keeping the watchdog loop unblocked
+            if self._executor:
+                self._executor.submit(self._process_file, dest_path)
+            else:
+                threading.Thread(target=self._process_file, args=(dest_path,), daemon=True).start()
     
     def _process_file(self, file_path):
         """Process a file for auto-sorting with improved reliability"""
@@ -197,10 +206,19 @@ class FileChangeHandler(FileSystemEventHandler):
 
 class FolderWatcher:
     """Enhanced folder watcher with improved reliability and features"""
+    # Maximum number of concurrent file-processing workers.
+    # Keeps CPU/IO load bounded while still processing multiple files in parallel.
+    MAX_WORKERS = 4
+
     def __init__(self, watch_path, file_ops, categorizer):
         self.watch_path = Path(watch_path)
         self.observer = Observer()
-        self.handler = FileChangeHandler(file_ops, categorizer)
+        # Bounded thread pool shared by the handler and the initial-scan path
+        self._executor = ThreadPoolExecutor(
+            max_workers=self.MAX_WORKERS,
+            thread_name_prefix="sortify-worker",
+        )
+        self.handler = FileChangeHandler(file_ops, categorizer, executor=self._executor)
         self.running = False
         self._observer_was_stopped = False
         self.stats = {
@@ -213,9 +231,14 @@ class FolderWatcher:
     def start(self):
         """Start watching the folder with improved handling"""
         if not self.running:
-            # Create a new observer if it was previously stopped
+            # Create a new observer and executor if they were previously stopped
             if hasattr(self, '_observer_was_stopped') and self._observer_was_stopped:
                 self.observer = Observer()
+                self._executor = ThreadPoolExecutor(
+                    max_workers=self.MAX_WORKERS,
+                    thread_name_prefix="sortify-worker",
+                )
+                self.handler._executor = self._executor
                 self._observer_was_stopped = False
             
             # Process existing files in the directory if it's the first start
@@ -235,6 +258,8 @@ class FolderWatcher:
         if self.running:
             self.observer.stop()
             self.observer.join()
+            # Gracefully drain and shut down the thread pool
+            self._executor.shutdown(wait=True)
             self.running = False
             self._observer_was_stopped = True
             logger.info(f"Stopped watching folder: {self.watch_path}")
@@ -263,7 +288,7 @@ class FolderWatcher:
                 if hasattr(self.handler, 'file_ops') and self.handler.file_ops and hasattr(self.handler.file_ops, 'base_dir'):
                     dest_base_dir = str(self.handler.file_ops.base_dir)
                 
-                # Process each file, skipping those in destination directory
+                # Process each file concurrently via the thread pool
                 for file_path in files:
                     # Skip temporary files
                     if any(pattern in file_path.name for pattern in self.handler.ignored_patterns):
@@ -274,10 +299,10 @@ class FolderWatcher:
                         logger.info(f"Skipping file already in destination directory: {file_path}")
                         continue
                     
-                    # Process the file
-                    self.handler._process_file(file_path)
+                    # Submit to pool — all files start concurrently, bounded by MAX_WORKERS
+                    self._executor.submit(self.handler._process_file, file_path)
                     
-                logger.info(f"Completed processing existing files in {self.watch_path}")
+                logger.info(f"Submitted existing files to background processing: {self.watch_path}")
             else:
                 logger.info(f"No existing files found in {self.watch_path}")
                 
