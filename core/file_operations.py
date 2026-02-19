@@ -4,7 +4,10 @@ from pathlib import Path
 from datetime import datetime
 from contextlib import contextmanager
 from PyQt6.QtWidgets import QMessageBox, QInputDialog, QFileDialog
-from .history import HistoryManager
+# NOTE: HistoryManager is intentionally NOT imported at module level.
+# It is injected via the `history_manager` parameter of __init__, or lazily
+# imported inside __init__ as a fallback.  This breaks the potential circular
+# import chain: main_window → file_operations → history → (anything back).
 from .safety_manager import SafetyManager
 from .duplicate_finder import DuplicateFinder
 import logging
@@ -288,7 +291,7 @@ class FileOperations:
         # If we've exhausted all attempts without returning
         return None, None
 
-    def __init__(self, base_path=None, folder_name=None, safety_config=None, dry_run=False, skip_confirmations=False, allowed_dirs=None, config_manager=None):
+    def __init__(self, base_path=None, folder_name=None, safety_config=None, dry_run=False, skip_confirmations=False, allowed_dirs=None, config_manager=None, history_manager=None):
         """
         Initialize FileOperations with customizable base path and folder name
         
@@ -300,6 +303,9 @@ class FileOperations:
             skip_confirmations (bool): If True, skip all confirmation dialogs
             allowed_dirs (list, optional): List of additional allowed directories for file operations
             config_manager (ConfigManager, optional): Configuration manager for loading categories
+            history_manager (HistoryManager, optional): Pre-constructed HistoryManager to use.
+                If None, a HistoryManager is constructed here via a lazy import (avoids
+                module-level circular import risk).
             
         Raises:
             ValueError: If base_path or folder_name are None in non-dry-run mode
@@ -329,7 +335,15 @@ class FileOperations:
                 )
         
         self.base_dir = Path(base_path) / folder_name
-        self.history = HistoryManager()
+
+        # COUPLING-003 FIX: Use injected HistoryManager if provided;
+        # otherwise do a lazy import here so that importing file_operations.py
+        # at module level never forces history.py to be resolved first.
+        if history_manager is not None:
+            self.history = history_manager
+        else:
+            from .history import HistoryManager  # lazy – safe from circular imports
+            self.history = HistoryManager()
         
         # Pass skip_confirmations to SafetyManager
         if safety_config is None:
