@@ -344,6 +344,11 @@ class FileOperations:
         else:
             from .history import HistoryManager  # lazy – safe from circular imports
             self.history = HistoryManager()
+
+        # COUPLING-006 FIX: Reuse a single DuplicateFinder so its hash_cache
+        # persists across all move_file/copy_file calls within this instance,
+        # avoiding redundant re-hashing of the same files.
+        self._duplicate_finder = DuplicateFinder()
         
         # Pass skip_confirmations to SafetyManager
         if safety_config is None:
@@ -678,9 +683,8 @@ class FileOperations:
             # Handle filename conflicts with content-based duplicate detection
             if dest_path.exists():
                 # Check if it's actually a duplicate by comparing file hashes
-                finder = DuplicateFinder()
-                source_hash = finder.calculate_file_hash(source_path)
-                dest_hash = finder.calculate_file_hash(dest_path)
+                source_hash = self._duplicate_finder.calculate_file_hash(source_path)
+                dest_hash = self._duplicate_finder.calculate_file_hash(dest_path)
                 
                 if source_hash and dest_hash and source_hash == dest_hash:
                     # True duplicate - skip copy operation silently
@@ -809,9 +813,8 @@ class FileOperations:
             # Handle filename conflicts with content-based duplicate detection
             if dest_path.exists():
                 # Check if it's actually a duplicate by comparing file hashes
-                finder = DuplicateFinder()
-                source_hash = finder.calculate_file_hash(source_path)
-                dest_hash = finder.calculate_file_hash(dest_path)
+                source_hash = self._duplicate_finder.calculate_file_hash(source_path)
+                dest_hash = self._duplicate_finder.calculate_file_hash(dest_path)
                 
                 if source_hash and dest_hash and source_hash == dest_hash:
                     # True duplicate - ask user if they want to skip
