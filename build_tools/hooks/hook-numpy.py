@@ -38,12 +38,11 @@ hiddenimports.extend([
     'numpy.random._sfc64'
 ])
 
-# Ensure numpy_ops is included
+# Verify critical NumPy modules are importable at build time
 try:
     import numpy.core._multiarray_umath  # type: ignore
     import numpy.linalg.lapack_lite  # type: ignore
-    import thinc.backends.numpy_ops  # type: ignore
-    print("Successfully imported critical NumPy and Thinc modules")
+    print("Successfully imported critical NumPy modules")
 except ImportError as e:
-    print(f"Warning: Could not import some NumPy or Thinc modules: {e}")
+    print(f"Warning: Could not import some NumPy modules: {e}")
     print("The built application may have issues with these modules.")
