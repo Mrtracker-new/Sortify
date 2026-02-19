@@ -21,30 +21,9 @@ if os.name == 'nt':
         win32api = None
         winerror = None
 
-# ====================================================================
-# FIX: PyTorch DLL Loading on Windows
-# ====================================================================
-# PyTorch requires its DLL directory to be in the search path BEFORE
-# PyQt6 is imported. This fixes "c10.dll cannot be loaded" errors.
-if os.name == 'nt':  # Windows only
-    try:
-        import torch
-        torch_lib_path = Path(torch.__file__).parent / "lib"
-        
-        # Add to DLL search path (Python 3.8+)
-        if hasattr(os, 'add_dll_directory'):
-            os.add_dll_directory(str(torch_lib_path))
-            print(f"✓ Added PyTorch DLL directory: {torch_lib_path}")
-        else:
-            # Fallback for older Python versions
-            os.environ['PATH'] = str(torch_lib_path) + os.pathsep + os.environ.get('PATH', '')
-            print(f"✓ Added PyTorch to PATH: {torch_lib_path}")
-            
-    except ImportError:
-        print("⚠ PyTorch not found - AI features will be unavailable")
-    except Exception as e:
-        print(f"⚠ Warning: Could not configure PyTorch DLL path: {e}")
-# ====================================================================
+# Note: PyTorch is not a required dependency for Sortify.
+# spaCy's thinc backend uses numpy/blis - no torch needed.
+# If torch is added in the future, add its DLL path here before importing PyQt6.
 
 # Note: spaCy model loading has been moved to background thread in main_window.py
 # to prevent UI blocking during startup. The ModelLoaderThread will handle
