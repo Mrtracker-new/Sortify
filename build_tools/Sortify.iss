@@ -1,5 +1,5 @@
 #define MyAppName "Sortify"
-#define MyAppVersion "1.0"
+#define MyAppVersion "2026.19.2"
 #define MyAppPublisher "Rolan Lobo"
 #define MyAppURL ""
 #define MyAppExeName "Sortify.exe"
@@ -17,9 +17,9 @@ DefaultDirName={autopf}\{#MyAppName}
 DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only.)
 ;PrivilegesRequired=lowest
-OutputDir=installer
+OutputDir=..\installer
 OutputBaseFilename=Sortify_Setup
-SetupIconFile=resources\icons\app_icon.ico
+SetupIconFile=..\resources\icons\app_icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -28,7 +28,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
 ; Improve Windows Defender detection by adding more metadata
 VersionInfoCompany={#MyAppPublisher}
-VersionInfoCopyright="Copyright (C) 2024 {#MyAppPublisher}"
+VersionInfoCopyright="Copyright (C) 2026 {#MyAppPublisher}"
 VersionInfoDescription="Sortify - AI-powered file organization tool"
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
@@ -42,14 +42,12 @@ Name: "startmenuicon"; Description: "Create a Start Menu shortcut"; GroupDescrip
 
 [Files]
 ; Copy all files from the dist directory
-Source: "dist\Sortify.exe\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\Sortify.exe\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Ensure critical Python DLLs are copied to the root directory
-Source: "dist\Sortify.exe\_internal\python*.dll"; DestDir: "{app}"; Flags: ignoreversion
-; Create a batch file launcher as a fallback
-Source: "launcher.bat"; DestDir: "{app}"; Flags: ignoreversion
-; Include Visual C++ Redistributable 2015-2022 (required for NumPy DLLs)
-; Changed from external URL to local file that must be downloaded separately
-Source: "redist\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall
+Source: "..\dist\Sortify.exe\_internal\python*.dll"; DestDir: "{app}"; Flags: ignoreversion
+; Include Visual C++ Redistributable if present (download separately from https://aka.ms/vs/17/release/vc_redist.x64.exe)
+; Uncomment the next line if you have downloaded vc_redist.x64.exe into a 'redist' folder:
+; Source: "..\redist\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall
 
 [Code]
 function InitializeSetup(): Boolean;
@@ -87,7 +85,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 ; Install Visual C++ Redistributable (required for NumPy DLLs) if needed
-Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Redistributable (required for NumPy)..."; Flags: waituntilterminated; Check: VCRedistNeedsInstall
+; Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Redistributable (required for NumPy)..."; Flags: waituntilterminated; Check: VCRedistNeedsInstall
 ; Launch the application after installation
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
