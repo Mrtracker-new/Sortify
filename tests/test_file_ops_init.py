@@ -95,17 +95,78 @@ def test_partial_none_values():
         print(f"  🚨 Unexpected drama: {type(e).__name__}: {e}")
         return False
 
+def test_dependency_injection_history_manager():
+    """COUPLING-003: Test that FileOperations accepts an external HistoryManager"""
+    print("\n🧪 Test 5: Dependency injection - passing our own HistoryManager...")
+
+    try:
+        from core.history import HistoryManager
+        import tempfile
+        import shutil
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            hm = HistoryManager()
+            file_ops = FileOperations(
+                base_path=temp_dir,
+                folder_name="TestOrg",
+                history_manager=hm
+            )
+            if file_ops.history is hm:
+                print("  🎉 The injected HistoryManager was used (same object identity)!")
+                return True
+            else:
+                print("  😬 A different HistoryManager was created instead of reusing ours.")
+                return False
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+    except Exception as e:
+        print(f"  🚨 Unexpected error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def test_no_circular_import():
+    """COUPLING-003: file_operations must be importable without pre-importing history"""
+    print("\n🧪 Test 6: Importing file_operations without first importing history...")
+
+    try:
+        import sys
+        import importlib
+
+        # Purge cached modules so we get a clean import chain
+        for key in list(sys.modules.keys()):
+            if "history" in key or "file_operations" in key:
+                del sys.modules[key]
+
+        # This should not raise ImportError or AttributeError
+        importlib.import_module("core.file_operations")
+        print("  🎉 core.file_operations imported cleanly with no circular import error!")
+        return True
+    except (ImportError, AttributeError) as e:
+        print(f"  💀 Circular import detected: {e}")
+        return False
+    except Exception as e:
+        print(f"  🚨 Unexpected error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def main():
     """Run all tests"""
     print("=" * 70)
     print("🚀 FileOperations Initialization Fix - The Test Gauntlet")
     print("=" * 70)
-    
+
     tests = [
         test_fail_fast_on_none_values,
         test_dry_run_accepts_none,
         test_valid_parameters,
-        test_partial_none_values
+        test_partial_none_values,
+        test_dependency_injection_history_manager,
+        test_no_circular_import,
     ]
     
     results = []
