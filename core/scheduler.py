@@ -15,7 +15,11 @@ class SortScheduler:
     """Enhanced scheduler for automated sorting tasks with improved reliability and features"""
     def __init__(self, file_ops, categorizer):
         self.scheduler = BackgroundScheduler()
-        self.file_ops = file_ops
+        # Capture move_file as a snapshot at construction time so that later
+        # mutations to file_ops (e.g. base_dir changes) don't affect jobs that
+        # were already scheduled.  Jobs bake in the callable they need rather
+        # than keeping a live reference to the mutable file_ops object.
+        self._move_file_fn = file_ops.move_file
         self.categorizer = categorizer
         self.jobs = {}
         self.job_history = {}
@@ -83,11 +87,15 @@ class SortScheduler:
             logger.error(f"Unknown trigger type: {trigger_type}")
             return False
             
+        # Capture the move callable now so the job is insulated from any
+        # future mutations to the file_ops object (e.g. base_dir changes).
+        move_fn = self._move_file_fn
+
         # Add the job to the scheduler
         job = self.scheduler.add_job(
             self._sort_folder,
             trigger=trigger,
-            args=[folder_path, recursive, name],
+            args=[folder_path, recursive, name, move_fn],
             id=name,
             replace_existing=True
         )
@@ -131,9 +139,12 @@ class SortScheduler:
         if name in self.jobs:
             raise ValueError(f"Job '{name}' already exists. Choose a different name or remove the existing job first.")
         
+        # Capture the move callable at scheduling time (same pattern as add_job).
+        move_fn = self._move_file_fn
+
         if run_date is None:
             # Run immediately in a separate thread
-            threading.Thread(target=self._sort_folder, args=[folder_path, recursive, name]).start()
+            threading.Thread(target=self._sort_folder, args=[folder_path, recursive, name, move_fn]).start()
             schedule_desc = "immediately (one-time)"
             
             # Store job info without actual job object
@@ -155,7 +166,7 @@ class SortScheduler:
                 self._sort_folder,
                 'date',
                 run_date=run_date,
-                args=[folder_path, recursive, name],
+                args=[folder_path, recursive, name, move_fn],
                 id=name
             )
             
@@ -214,7 +225,7 @@ class SortScheduler:
             return True
         return False
         
-    def _sort_folder(self, folder_path, recursive=False, job_name=None):
+    def _sort_folder(self, folder_path, recursive=False, job_name=None, move_fn=None):
         """Sort all files in the given folder with improved handling"""
         folder_path = Path(folder_path)
         start_time = time.time()
@@ -251,7 +262,7 @@ class SortScheduler:
                     category = self.categorizer.categorize_file(file_path)
                     
                     # Try to move the file with retry logic
-                    self._move_with_retry(file_path, category)
+                    self._move_with_retry(file_path, category, move_fn)
                     files_moved += 1
                     
                 except Exception as e:
@@ -288,11 +299,13 @@ class SortScheduler:
             if job_name and job_name in self.jobs:
                 self.jobs[job_name]['error_count'] += 1
     
-    def _move_with_retry(self, file_path, category):
+    def _move_with_retry(self, file_path, category, move_fn=None):
         """Try to move a file with retry logic for locked files"""
-        # Guard against None file_ops
-        if self.file_ops is None:
-            logger.error(f"Cannot move file {file_path}: FileOperations not initialized")
+        # Use the callable captured at job-creation time; fall back to the
+        # snapshot stored on boot if somehow not passed (defensive).
+        fn = move_fn or self._move_file_fn
+        if fn is None:
+            logger.error(f"Cannot move file {file_path}: no move_file callable available")
             return False
             
         max_retries = 3
@@ -300,7 +313,7 @@ class SortScheduler:
         
         for attempt in range(max_retries):
             try:
-                self.file_ops.move_file(file_path, category)
+                fn(file_path, category)
                 logger.info(f"Sorted {file_path.name} to {category}")
                 return True
             except PermissionError:
@@ -352,11 +365,13 @@ class SortScheduler:
         
     def run_all_jobs_now(self):
         """Run all scheduled jobs immediately"""
+        # Snapshot the callable once for this entire manual-trigger batch.
+        move_fn = self._move_file_fn
         for name, job_info in self.jobs.items():
             if job_info['job'] is not None:  # Skip one-time jobs that have already run
                 folder_path = job_info['folder_path']
                 recursive = job_info['recursive']
-                threading.Thread(target=self._sort_folder, 
-                                args=[folder_path, recursive, name]).start()
+                threading.Thread(target=self._sort_folder,
+                                args=[folder_path, recursive, name, move_fn]).start()
                 logger.info(f"Manually triggered job: {name}")
         return True
