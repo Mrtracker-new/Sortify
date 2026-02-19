@@ -32,7 +32,7 @@ def get_platform_config():
         },
         'windows': {
             'extension': '.exe',
-            'icon': 'resources/icons/app_icon.ico',
+            'icon': 'resources/icons/app_icon.ico' if os.path.exists('resources/icons/app_icon.ico') else 'resources/icons/app_icon.png',
             'separator': ';',
             'extra_args': []
         }
@@ -282,12 +282,10 @@ def build_application():
             '--clean',  # Clean PyInstaller cache
             '--noconfirm',  # Overwrite output directory without asking
             '--noupx',  # Disable UPX compression to avoid antivirus false positives
-            '--add-data', f"ui/styles.css{config['separator']}ui",
             '--add-data', f"resources/icons/*.png{config['separator']}resources/icons",
-            '--add-data', f"data{config['separator']}data",
-            # Add runtime hook for spaCy
-            '--runtime-hook', 'build_tools/hooks/spacy_hook.py',
-            # Add hook file for spaCy
+            '--add-data', f"resources/theme.qss{config['separator']}resources",
+            # Note: 'data/' is NOT bundled - the app creates its own DB in AppData on first run
+            # Add hook directory for spaCy and its C-extension dependencies
             '--additional-hooks-dir', 'build_tools/hooks',
             # Explicitly include SQLite modules
             '--hidden-import', 'sqlite3',
