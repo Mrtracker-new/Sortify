@@ -5,6 +5,7 @@ import sys
 import time
 import logging
 import threading
+import multiprocessing
 import shutil
 from pathlib import Path
 
@@ -94,30 +95,74 @@ def check_file_permissions(file_path):
         return False
 
 class HistoryManager:
-    """Manages the history database for file operations"""
-    
-    # Singleton pattern: Class-level variables
-    _instance = None
-    _lock = threading.Lock()
-    
-    def __new__(cls):
-        """Implement singleton pattern with thread-safe double-checked locking"""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
+    """Manages the history database for file operations.
+
+    Multiprocessing safety (ASM-001)
+    ---------------------------------
+    The singleton is scoped to the *current process* (keyed by ``os.getpid()``).
+    When a child process is created via ``fork`` it inherits the parent's
+    class-level ``_instance`` reference, but ``_owner_pid`` will not match
+    the child's PID, so ``__new__`` discards the stale reference and builds a
+    fresh instance backed by a **separate** database file
+    (``history_<pid>.db``).  This prevents two processes from writing to the
+    same SQLite file and causing corruption.
+
+    The class-level ``_lock`` is a plain ``threading.Lock`` which is safe to
+    inherit across a fork provided the fork is not performed while the lock is
+    held – the standard Python ``os.fork()`` / ``multiprocessing`` guarantee.
+    """
+
+    # Singleton state – scoped per process
+    _instance: "HistoryManager | None" = None
+    _owner_pid: int | None = None          # PID that owns _instance
+    _lock = threading.Lock()               # Protects _instance / _owner_pid
+
+    def __new__(cls) -> "HistoryManager":
+        """Return the per-process singleton, creating a new one after a fork."""
+        current_pid = os.getpid()
+        # Fast path – no lock needed if we already own a valid instance
+        if cls._instance is not None and cls._owner_pid == current_pid:
+            return cls._instance
+        with cls._lock:
+            # Re-check under lock (double-checked locking)
+            if cls._instance is None or cls._owner_pid != current_pid:
+                logger.debug(
+                    "HistoryManager: creating new instance for PID %s "
+                    "(previous owner PID: %s)",
+                    current_pid,
+                    cls._owner_pid,
+                )
+                instance = super().__new__(cls)
+                # Reset initialisation flag so __init__ runs for (re)created instance
+                instance._initialized = False
+                cls._instance = instance
+                cls._owner_pid = current_pid
         return cls._instance
-    
+
     def __init__(self):
         """Initialize the history manager"""
         # Prevent re-initialization of singleton instance
         if hasattr(self, '_initialized') and self._initialized:
             return
-        
+
         try:
-            # Get the path to the database file
+            # Get the path to the database file.
+            # Forked child processes use a separate DB (history_<pid>.db) so
+            # they never share the same SQLite file as the parent.
             self.data_dir = get_data_dir()
-            self.db_path = self.data_dir / "history.db"
+            current_pid = os.getpid()
+            is_child = multiprocessing.current_process().name != 'MainProcess'
+            if is_child:
+                db_filename = f"history_{current_pid}.db"
+                logger.info(
+                    "HistoryManager running in child process %s – "
+                    "using isolated database '%s'",
+                    current_pid,
+                    db_filename,
+                )
+            else:
+                db_filename = "history.db"
+            self.db_path = self.data_dir / db_filename
             logger.info(f"Database path: {self.db_path}")
             
             # Check if we have proper permissions
