@@ -7,10 +7,11 @@ from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap, QAction, QF
 from core.file_operations import FileOperations
 from core.watcher import FolderWatcher
 from core.scheduler import SortScheduler
-from core.ai_categorizer import AIFileClassifier
-from core.image_analyzer import ImageAnalyzer
-from core.command_parser import CommandParser
 from core.config_manager import ConfigManager
+# NOTE: AIFileClassifier, ImageAnalyzer, and CommandParser are intentionally
+# NOT imported here. They pull in sklearn/numpy/heavy deps at import time.
+# They are imported lazily inside ModelLoaderThread.run() so the UI appears
+# instantly and all heavy loading happens in a background thread.
 from .settings_window import SettingsWindow
 from pathlib import Path
 from datetime import datetime
@@ -98,40 +99,46 @@ class ModelLoaderThread(QThread):
             try:
                 self.progress.emit("Loading spaCy model...")
                 logger.info("Loading spaCy model in background thread")
-                
+
                 import spacy
-                import spacy.util
-                
-                # When running from PyInstaller bundle, set up model paths
-                if getattr(sys, '_MEIPASS', None):
-                    possible_model_paths = [
-                        os.path.join(sys._MEIPASS, 'en_core_web_sm'),
-                        os.path.join(os.path.dirname(sys.executable), 'en_core_web_sm'),
-                    ]
-                    
-                    for model_path in possible_model_paths:
-                        if os.path.exists(model_path):
-                            logger.info(f"Setting spaCy model path to: {model_path}")
-                            spacy.util.set_data_path(model_path)
-                            break
-                
-                # Load the model
-                spacy_nlp = spacy.load('en_core_web_sm')
+
+                # In a PyInstaller frozen bundle the entry-point registry is not
+                # available, so spacy.load('en_core_web_sm') fails.  We must load
+                # the model by its absolute path instead.
+                if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+                    model_path = os.path.join(sys._MEIPASS, 'en_core_web_sm')
+                    if not os.path.isdir(model_path):
+                        # Fallback: look next to the executable
+                        model_path = os.path.join(
+                            os.path.dirname(sys.executable), 'en_core_web_sm'
+                        )
+                    # The package is bundled as en_core_web_sm/en_core_web_sm-X.Y.Z/
+                    # (a versioned subfolder that contains config.cfg). Probe for it.
+                    if os.path.isdir(model_path) and not os.path.isfile(os.path.join(model_path, 'config.cfg')):
+                        for sub in os.listdir(model_path):
+                            candidate = os.path.join(model_path, sub)
+                            if os.path.isdir(candidate) and os.path.isfile(os.path.join(candidate, 'config.cfg')):
+                                model_path = candidate
+                                break
+                    logger.info(f"Frozen bundle: loading spaCy model from path: {model_path}")
+                    spacy_nlp = spacy.load(model_path)
+                else:
+                    spacy_nlp = spacy.load('en_core_web_sm')
+
                 logger.info("✓ spaCy model loaded successfully")
                 self.progress.emit("spaCy model loaded")
-                
+
             except ImportError as e:
-                logger.warning(f"spaCy import failed: {e}")
+                logger.warning(f"spaCy not installed: {e}")
                 logger.info("Application will use basic pattern-based categorization")
                 self.progress.emit("spaCy not available - using basic mode")
             except OSError as e:
-                # This catches DLL loading errors from PyTorch/thinc dependencies
-                logger.warning(f"spaCy dependencies failed to load (DLL error): {e}")
-                logger.info("This is often caused by missing Visual C++ Redistributables")
+                # Catches both "model not found" and DLL loading errors
+                logger.warning(f"spaCy model/DLL failed to load: {e}")
                 logger.info("Application will use basic pattern-based categorization")
-                self.progress.emit("spaCy unavailable (DLL error) - using basic mode")
+                self.progress.emit("spaCy unavailable - using basic mode")
             except Exception as e:
-                logger.warning(f"Error loading spaCy: {e}")
+                logger.warning(f"Unexpected error loading spaCy: {e}")
                 logger.info("Application will use basic pattern-based categorization")
                 self.progress.emit("spaCy loading failed - using basic mode")
             
