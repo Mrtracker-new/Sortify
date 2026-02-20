@@ -20,6 +20,15 @@ except Exception as e:
     SPACY_AVAILABLE = False
     logger.warning(f"Error importing spacy: {e}. AI categorization will be limited to pattern matching.")
 
+# Guard-import the advanced ML classifier.  We import lazily (inside the class)
+# to avoid circular-import issues and to keep startup cost near zero.
+try:
+    from .ai_categorizer import AIFileClassifier as _AIFileClassifier
+    _ML_CLASSIFIER_AVAILABLE = True
+except Exception as _import_err:  # pragma: no cover
+    _ML_CLASSIFIER_AVAILABLE = False
+    logger.debug("AIFileClassifier not available for categorization pipeline: %s", _import_err)
+
 class FileCategorizationAI:
     def __init__(self, nlp=None):
         """
@@ -133,6 +142,11 @@ class FileCategorizationAI:
         elif self.nlp is None and not SPACY_AVAILABLE:
             logger.info("spaCy not available - using basic pattern-based categorization")
             self.ai_enabled = False
+        
+        # Lazy ML classifier — bootstrapped on first use (see _get_ml_classifier).
+        # Using None here keeps __init__ fast; the classifier constructs itself on
+        # the first file that falls through the extension map.
+        self._ml_classifier: '_AIFileClassifier | None' = None
     
     def set_nlp_model(self, nlp):
         """
@@ -147,6 +161,24 @@ class FileCategorizationAI:
             logger.info("✓ spaCy model updated - AI categorization now enabled")
         
 
+
+    def _get_ml_classifier(self):
+        """Return the shared ML classifier, constructing it on first call.
+
+        The constructor auto-bootstraps (no real files needed), so this is
+        safe to call on any file.  Returns ``None`` if ``AIFileClassifier``
+        could not be imported, keeping the whole ML path fully optional.
+        """
+        if not _ML_CLASSIFIER_AVAILABLE:
+            return None
+        if self._ml_classifier is None:
+            try:
+                self._ml_classifier = _AIFileClassifier()
+                logger.debug("AIFileClassifier initialised and bootstrapped.")
+            except Exception as e:  # pragma: no cover
+                logger.warning("Could not initialise AIFileClassifier: %s", e)
+                return None
+        return self._ml_classifier
 
     def categorize_file(self, file_path):
         """Categorize a file based on its content and metadata"""
@@ -218,7 +250,24 @@ class FileCategorizationAI:
             except (IOError, UnicodeDecodeError) as e:
                 logger.warning(f"Could not read text file {file_path}: {e}")
 
-        return 'misc/other'  
+        # ---- ML confidence-gated override (last resort) ----
+        # Fires only when the extension map and spaCy analysis both failed to
+        # produce a confident answer.  safe_predict() returns None if the
+        # bootstrap / progressive model isn't confident enough (< 0.6), so the
+        # caller still gets 'misc/other' — we never silently mis-sort.
+        ml = self._get_ml_classifier()
+        if ml is not None:
+            ml_result = ml.safe_predict(file_path, confidence_threshold=0.6)
+            if ml_result:
+                category = ml_result['category']
+                confidence = ml_result['confidence']
+                logger.debug(
+                    "ML override: %s → %s (conf=%.2f)",
+                    file_path.name, category, confidence
+                )
+                return category
+
+        return 'misc/other'
 
     def _is_text_file(self, file_path):
         """Check if file is text-based"""
