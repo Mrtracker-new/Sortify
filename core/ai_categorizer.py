@@ -1,4 +1,5 @@
 import os
+import threading
 import re
 import pickle
 import logging
@@ -351,6 +352,10 @@ class SentenceTransformerClassifier:
         # Cache for embeddings to avoid recomputing
         self.embedding_cache = LRUCache(max_size=1000)
         
+        # Lock that serialises model.encode() calls so concurrent threads
+        # sharing this classifier instance cannot race on PyTorch's PRNG state.
+        self._model_lock = threading.Lock()
+        
         # Initialize the model on first use (lazy loading)
         self._initialize_model()
     
@@ -378,15 +383,22 @@ class SentenceTransformerClassifier:
         # Create cache key using hash of text
         cache_key = hashlib.md5(text.encode('utf-8', errors='ignore')).hexdigest()
         
-        # Check cache first
+        # Check cache first — no lock needed, LRUCache reads are single-threaded
         cached_embedding = self.embedding_cache.get(cache_key)
         if cached_embedding is not None:
             return cached_embedding
         
-        # Generate embedding
-        embedding = self.model.encode(text, convert_to_numpy=True)
+        # Serialise encode() calls: PyTorch's PRNG is not thread-safe and
+        # concurrent .encode() on the same model instance can corrupt results.
+        with self._model_lock:
+            # Re-check cache inside the lock in case another thread computed
+            # the same embedding while we were waiting.
+            cached_embedding = self.embedding_cache.get(cache_key)
+            if cached_embedding is not None:
+                return cached_embedding
+            embedding = self.model.encode(text, convert_to_numpy=True)
         
-        # Cache it
+        # Cache it (outside the lock — put() is fast and the value is immutable)
         self.embedding_cache.put(cache_key, embedding)
         
         return embedding
