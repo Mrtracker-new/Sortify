@@ -21,13 +21,18 @@ if os.name == 'nt':
         win32api = None
         winerror = None
 
-# Note: PyTorch is not a required dependency for Sortify.
-# spaCy's thinc backend uses numpy/blis - no torch needed.
-# If torch is added in the future, add its DLL path here before importing PyQt6.
-
-# Note: spaCy model loading has been moved to background thread in main_window.py
-# to prevent UI blocking during startup. The ModelLoaderThread will handle
-# spaCy path configuration and model loading asynchronously.
+# ---------------------------------------------------------------------------
+# CRITICAL: Pre-warm PyTorch DLLs BEFORE PyQt6 is imported.
+# On Windows, importing PyQt6 causes Qt to load graphics/runtime DLLs
+# (e.g. via Qt Platform Abstraction) that conflict with torch's c10.dll
+# initialisation routine.  If torch is initialised first its DLLs are
+# already mapped into the process and the conflict does not occur.
+# This must be the very first non-stdlib import in the application.
+# ---------------------------------------------------------------------------
+try:
+    import torch  # noqa: F401 – side-effect / DLL pre-warm only
+except Exception:
+    pass  # torch not installed; spaCy will still work without it
 
 # Now import the rest of the modules
 from PyQt6.QtWidgets import QApplication, QMessageBox
