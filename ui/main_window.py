@@ -86,12 +86,7 @@ class ModelLoaderThread(QThread):
             import sys
             import os
             from pathlib import Path
-            
-            # Import here to avoid main thread lag if they do top-level loading
-            from core.ai_categorizer import AIFileClassifier
-            from core.image_analyzer import ImageAnalyzer
-            from core.command_parser import CommandParser
-            
+
             logger.info("Starting background model loading...")
             
             # === Load spaCy model first ===
@@ -143,6 +138,12 @@ class ModelLoaderThread(QThread):
                 self.progress.emit("spaCy loading failed - using basic mode")
             
             # === Load other AI models ===
+            # NOTE: These imports come AFTER spaCy to prevent PyTorch's c10.dll
+            # from initialising in a broken state inside the QThread before spaCy loads.
+            from core.ai_categorizer import AIFileClassifier
+            from core.image_analyzer import ImageAnalyzer
+            from core.command_parser import CommandParser
+
             self.progress.emit("Loading AI classifier...")
             
             # Initialize AI classifier
@@ -342,7 +343,16 @@ class MainWindow(QMainWindow):
     def init_advanced_features(self):
         """Start background loading of advanced features"""
         self.status_bar.showMessage("Loading AI models...")
-        
+
+        # Pre-warm PyTorch on the MAIN thread before spawning the QThread.
+        # On Windows, c10.dll (and other PyTorch DLLs) can only be fully
+        # initialised from the process's primary thread; if a QThread loads
+        # them first it raises WinError 1114 and breaks spaCy loading too.
+        try:
+            import torch  # noqa: F401 – side-effect import only
+        except Exception:
+            pass  # torch not installed – that's fine, spaCy doesn't need it
+
         self.loader_thread = ModelLoaderThread()
         self.loader_thread.finished.connect(self.on_models_loaded)
         self.loader_thread.progress.connect(self.on_loading_progress)
