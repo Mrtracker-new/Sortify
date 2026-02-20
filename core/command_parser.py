@@ -1,105 +1,365 @@
 import logging
 import re
+import threading
 from pathlib import Path
 import datetime
 
-class CommandParser:
-    """Class for parsing natural language commands for file operations"""
-    
+# ---------------------------------------------------------------------------
+# Semantic intent classifier (sentence-transformers, optional dependency)
+# ---------------------------------------------------------------------------
+
+class IntentClassifier:
+    """Semantic intent router using sentence-transformers prototype embeddings.
+
+    Falls back gracefully to 'unknown' when sentence-transformers is not
+    installed or the model cannot be loaded, allowing CommandParser to use the
+    original regex keyword loop as a backup.
+    """
+
+    INTENT_PROTOTYPES = {
+        'move':     [
+            'move files to folder',
+            'move all documents to archive folder',
+            'transfer files to directory',
+            'put files into archive folder',
+            'put documents in backup folder',
+            'shift files to folder',
+            'send files to destination folder',
+            'take files and put them in folder',
+            'relocate files to directory',
+            'move photos to backup',
+        ],
+        'copy':     [
+            'copy files to folder',
+            'copy documents to backup folder',
+            'duplicate files to another folder',
+            'make a copy of documents in folder',
+            'make a copy of reports in archive',
+            'create a copy and place in archive',
+            'make a backup copy in directory',
+        ],
+        'organize': [
+            'organize folder by type',
+            'sort files in directory',
+            'clean up directory',
+            'tidy up folder',
+            'arrange files in directory',
+            'categorize files in folder',
+            'structure files in directory',
+            'tidy and sort old documents',
+            'clean and sort archived documents',
+        ],
+        'find':     [
+            'find files in folder',
+            'search for files matching criteria',
+            'locate files in directory',
+            'locate documents modified recently',
+            'show me all files',
+            'show me all images in folder',
+            'list files matching criteria',
+            'which files are in folder',
+            'look for files in directory',
+            'look for images from yesterday',
+            'where are my files',
+        ],
+        'delete':   [
+            'delete files from folder',
+            'remove files from directory',
+            'get rid of old files',
+            'clean old files older than days',
+            'erase files from folder',
+            'wipe files from directory',
+            'purge old files from folder',
+            'trash files older than days',
+        ],
+        'rename':   [
+            'rename files in folder',
+            'change filename of files',
+            'add date to filename',
+            'rename all files in directory',
+            'relabel files with date',
+            'add prefix to filename',
+            'change name of all files',
+            'label files with date',
+        ],
+    }
+
+    # Cosine-similarity threshold: scores below this map to 'unknown'.
+    # 0.45 gives good recall on short/colloquial phrasings while still
+    # rejecting clearly unrelated input.
+    THRESHOLD = 0.45
+
     def __init__(self):
-        """Initialize the command parser"""
-        self.commands = {
-            'move': self._parse_move_command,
-            'copy': self._parse_copy_command,
-            'organize': self._parse_organize_command,
-            'sort': self._parse_sort_command,
-            'find': self._parse_find_command,
-            'search': self._parse_find_command,  # Alias for find
-            'delete': self._parse_delete_command,
-            'rename': self._parse_rename_command
-        }
-        
-        self.time_patterns = {
-            'today': self._get_today,
-            'yesterday': self._get_yesterday,
-            'last week': self._get_last_week,
-            'last month': self._get_last_month,
-            r'older than (\d+) days': self._get_older_than_days
-        }
-        
-        logging.info("CommandParser initialized")
-    
-    def parse_command(self, command_text):
-        """Parse a natural language command
-        
+        self._model = None
+        self._proto_embeddings = None
+        self._st_util = None
+        self._lock = threading.Lock()
+        self._available = None  # None = not yet tried
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _load(self) -> bool:
+        """Lazy-load sentence-transformers and pre-compute prototype embeddings.
+
+        Idempotent – safe to call multiple times; the model is loaded only once.
+        Returns True if the classifier is ready, False otherwise.
+        """
+        if self._available is not None:
+            return self._available
+
+        try:
+            from sentence_transformers import SentenceTransformer, util as st_util
+
+            self._st_util = st_util
+            self._model = SentenceTransformer('all-MiniLM-L6-v2')
+
+            # Pre-compute prototype embeddings (done once, cached forever)
+            self._proto_embeddings = {
+                intent: self._model.encode(phrases, convert_to_tensor=True)
+                for intent, phrases in self.INTENT_PROTOTYPES.items()
+            }
+
+            self._available = True
+            logging.info("IntentClassifier: sentence-transformers loaded successfully")
+
+        except ImportError:
+            self._available = False
+            logging.info(
+                "IntentClassifier: sentence-transformers not installed – "
+                "CommandParser will use regex keyword fallback"
+            )
+        except Exception as e:  # model download failure, etc.
+            self._available = False
+            logging.warning(f"IntentClassifier: failed to load model – {e}")
+
+        return self._available
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def detect_intent(self, text: str) -> str:
+        """Return the best-matching intent name or ``'unknown'``.
+
         Args:
-            command_text: The natural language command text
-            
+            text: Raw (already lower-cased) command string.
+
         Returns:
-            dict: Parsed command with action and parameters
+            One of ``'move'``, ``'copy'``, ``'organize'``, ``'find'``,
+            ``'delete'``, ``'rename'``, or ``'unknown'``.
+        """
+        with self._lock:
+            if not self._load():
+                return 'unknown'  # Caller falls back to regex loop
+
+            query_emb = self._model.encode(text, convert_to_tensor=True)
+
+            best_intent, best_score = 'unknown', 0.0
+            for intent, proto_embs in self._proto_embeddings.items():
+                score = float(self._st_util.cos_sim(query_emb, proto_embs).max())
+                if score > best_score:
+                    best_score, best_intent = score, intent
+
+            result = best_intent if best_score >= self.THRESHOLD else 'unknown'
+            logging.debug(
+                f"IntentClassifier: '{text}' → '{result}' (score={best_score:.3f})"
+            )
+            return result
+
+    @property
+    def is_available(self) -> bool:
+        """True if the sentence-transformers model is loaded and ready."""
+        return bool(self._available)
+
+
+# ---------------------------------------------------------------------------
+# Synonym normalisation helpers
+# ---------------------------------------------------------------------------
+
+# Maps colloquial verbs → canonical intent keyword.
+# Used by _extract_destination / _extract_source to widen pattern matching.
+_VERB_SYNONYMS = {
+    'shift':      'move',
+    'transfer':   'move',
+    'relocate':   'move',
+    'put':        'move',
+    'take':       'move',
+    'send':       'move',
+    'duplicate':  'copy',
+    'backup':     'copy',
+    'tidy':       'organize',
+    'clean':      'organize',
+    'arrange':    'organize',
+    'categorize': 'organize',
+    'archive':    'organize',
+    'locate':     'find',
+    'look':       'find',
+    'search':     'find',
+    'show':       'find',
+    'erase':      'delete',
+    'remove':     'delete',
+    'purge':      'delete',
+    'wipe':       'delete',
+    'trash':      'delete',
+    'relabel':    'rename',
+}
+
+# Also maps colloquial destination prepositions
+_DESTINATION_PREPS = ['to', 'into', 'in', 'inside']
+_SOURCE_PREPS = ['from', 'in', 'inside', 'within']
+
+
+def _normalise_command(text: str) -> str:
+    """Replace synonym verbs in *text* with their canonical equivalents."""
+    words = text.split()
+    return ' '.join(_VERB_SYNONYMS.get(w, w) for w in words)
+
+
+# ---------------------------------------------------------------------------
+# Main CommandParser class
+# ---------------------------------------------------------------------------
+
+class CommandParser:
+    """Parse natural language commands for file operations.
+
+    Intent detection is performed in two stages:
+
+    1. **Semantic stage** (preferred): ``IntentClassifier`` computes cosine
+       similarity between the user's command and a set of prototype phrases
+       for each intent using ``sentence-transformers/all-MiniLM-L6-v2``.
+    2. **Regex fallback**: if sentence-transformers is unavailable (not
+       installed, model not downloaded, or running in a minimal frozen bundle)
+       the original keyword-in-text loop is used instead.
+
+    Both stages produce a ``parsed_command`` dict that is consumed identically
+    by the rest of the application.
+    """
+
+    def __init__(self):
+        """Initialise the command parser."""
+        # Map canonical intent → parse handler
+        self.commands = {
+            'move':     self._parse_move_command,
+            'copy':     self._parse_copy_command,
+            'organize': self._parse_organize_command,
+            'sort':     self._parse_sort_command,
+            'find':     self._parse_find_command,
+            'search':   self._parse_find_command,  # regex-fallback alias
+            'delete':   self._parse_delete_command,
+            'rename':   self._parse_rename_command,
+        }
+
+        self.time_patterns = {
+            'today':                        self._get_today,
+            'yesterday':                    self._get_yesterday,
+            'last week':                    self._get_last_week,
+            'last month':                   self._get_last_month,
+            r'older than (\d+) days':       self._get_older_than_days,
+        }
+
+        # Semantic intent classifier (lazy-loaded on first parse_command call)
+        self._intent_clf = IntentClassifier()
+
+        logging.info("CommandParser initialised")
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def parse_command(self, command_text: str) -> dict:
+        """Parse a natural language command.
+
+        Args:
+            command_text: Raw user input string.
+
+        Returns:
+            dict with at minimum ``{'action': <str>}``.  An ``'error'`` key
+            is present when the action is ``'unknown'`` or a required
+            parameter is missing.
         """
         command_text = command_text.lower().strip()
-        
-        # Try to identify the command type
+
+        # ── Stage 1: semantic intent detection ─────────────────────────
+        intent = self._intent_clf.detect_intent(command_text)
+
+        if intent != 'unknown' and intent in self.commands:
+            logging.info(f"CommandParser: ST intent='{intent}' for '{command_text}'")
+            # Normalise synonyms before handing off to the regex extractor so
+            # that patterns like "shift photos to backup" still work.
+            normalised = _normalise_command(command_text)
+            return self.commands[intent](normalised)
+
+        # ── Stage 2: regex keyword fallback ────────────────────────────
+        # Also triggered when sentence-transformers is unavailable.
         for cmd_type, parser in self.commands.items():
             if cmd_type in command_text:
+                logging.info(
+                    f"CommandParser: regex fallback matched '{cmd_type}' "
+                    f"for '{command_text}'"
+                )
                 return parser(command_text)
-        
-        # If no command type is found
-        return {
-            'action': 'unknown',
-            'error': 'Could not understand command. Please try again with a different wording.'
-        }
-    
+
+        # ── Nothing matched ─────────────────────────────────────────────
+        supported = ', '.join(
+            f"'{k}'" for k in ('move', 'copy', 'organize', 'find', 'delete', 'rename')
+        )
+        hint = (
+            "Could not understand command. Supported operations: "
+            f"{supported}. "
+            "Try phrasing like: \"move all PDFs to Archive folder\", "
+            "\"find images modified last week\", or \"organize Downloads folder\"."
+        )
+        return {'action': 'unknown', 'error': hint}
+
+    # ------------------------------------------------------------------
+    # Parse handlers
+    # ------------------------------------------------------------------
+
     def _parse_move_command(self, command_text):
-        """Parse a move command
-        
-        Example: "Move all PDFs to Archive folder"
+        """Parse a move command.
+
+        Example: ``"Move all PDFs to Archive folder"``
         """
         result = {'action': 'move'}
-        
-        # Try to extract file type
+
         file_types = self._extract_file_types(command_text)
         if file_types:
             result['file_types'] = file_types
-        
-        # Try to extract time constraints
+
         time_constraint = self._extract_time_constraint(command_text)
         if time_constraint:
             result['time_constraint'] = time_constraint
-        
-        # Try to extract destination
+
         destination = self._extract_destination(command_text)
         if destination:
             result['destination'] = destination
         else:
             result['error'] = 'No destination folder specified'
-        
+
         return result
-    
+
     def _parse_copy_command(self, command_text):
-        """Parse a copy command
-        
-        Example: "Copy all images to Backup folder"
+        """Parse a copy command.
+
+        Example: ``"Copy all images to Backup folder"``
         """
-        # Similar to move but with different action
         result = self._parse_move_command(command_text)
         result['action'] = 'copy'
         return result
-    
+
     def _parse_organize_command(self, command_text):
-        """Parse an organize command
-        
-        Example: "Organize Downloads folder"
+        """Parse an organize command.
+
+        Example: ``"Organize Downloads folder"``
         """
         result = {'action': 'organize'}
-        
-        # Try to extract source folder
+
         source = self._extract_source(command_text)
         if source:
             result['source'] = source
-        
-        # Try to extract organization method
+
         if 'by type' in command_text:
             result['method'] = 'type'
         elif 'by date' in command_text:
@@ -107,78 +367,71 @@ class CommandParser:
         elif 'by size' in command_text:
             result['method'] = 'size'
         else:
-            result['method'] = 'type'  # Default
-        
+            result['method'] = 'type'  # default
+
         return result
-    
+
     def _parse_sort_command(self, command_text):
-        """Parse a sort command (alias for organize)"""
+        """Parse a sort command (alias for organize)."""
         result = self._parse_organize_command(command_text)
         result['action'] = 'sort'
         return result
-    
+
     def _parse_find_command(self, command_text):
-        """Parse a find/search command
-        
-        Example: "Find all documents modified last week"
+        """Parse a find/search command.
+
+        Example: ``"Find all documents modified last week"``
         """
         result = {'action': 'find'}
-        
-        # Try to extract file type
+
         file_types = self._extract_file_types(command_text)
         if file_types:
             result['file_types'] = file_types
-        
-        # Try to extract time constraints
+
         time_constraint = self._extract_time_constraint(command_text)
         if time_constraint:
             result['time_constraint'] = time_constraint
-        
-        # Try to extract search location
+
         source = self._extract_source(command_text)
         if source:
             result['source'] = source
-        
+
         return result
-    
+
     def _parse_delete_command(self, command_text):
-        """Parse a delete command
-        
-        Example: "Delete temporary files older than 30 days"
+        """Parse a delete command.
+
+        Example: ``"Delete temporary files older than 30 days"``
         """
         result = {'action': 'delete'}
-        
-        # Try to extract file type
+
         file_types = self._extract_file_types(command_text)
         if file_types:
             result['file_types'] = file_types
         else:
             result['error'] = 'No file types specified for deletion'
             return result
-        
-        # Try to extract time constraints (required for safety)
+
         time_constraint = self._extract_time_constraint(command_text)
         if time_constraint:
             result['time_constraint'] = time_constraint
         else:
             result['error'] = 'Time constraint required for deletion commands'
-        
+
         return result
-    
+
     def _parse_rename_command(self, command_text):
-        """Parse a rename command
-        
-        Example: "Rename all screenshots to include date"
+        """Parse a rename command.
+
+        Example: ``"Rename all screenshots to include date"``
         """
         result = {'action': 'rename'}
-        
-        # Try to extract file type
+
         file_types = self._extract_file_types(command_text)
         if file_types:
             result['file_types'] = file_types
-        
-        # Try to extract rename pattern
-        if 'include date' in command_text:
+
+        if 'include date' in command_text or 'add date' in command_text:
             result['pattern'] = 'date'
         elif 'sequential' in command_text:
             result['pattern'] = 'sequential'
@@ -188,162 +441,163 @@ class CommandParser:
             result['pattern'] = 'uppercase'
         else:
             result['error'] = 'No rename pattern specified'
-        
+
         return result
-    
+
+    # ------------------------------------------------------------------
+    # Parameter extractors
+    # ------------------------------------------------------------------
+
     def _extract_file_types(self, command_text):
-        """Extract file types from command text"""
+        """Extract file types from command text."""
         file_types = []
-        
-        # Common file type keywords
+
         type_keywords = {
-            'pdfs': '.pdf',
-            'pdf': '.pdf',
-            'documents': ['doc', 'docx', 'pdf', 'txt'],
-            'document': ['doc', 'docx', 'pdf', 'txt'],
-            'images': ['jpg', 'jpeg', 'png', 'gif', 'bmp'],
-            'image': ['jpg', 'jpeg', 'png', 'gif', 'bmp'],
-            'photos': ['jpg', 'jpeg', 'png'],
-            'photo': ['jpg', 'jpeg', 'png'],
-            'videos': ['mp4', 'avi', 'mov', 'mkv'],
-            'video': ['mp4', 'avi', 'mov', 'mkv'],
-            'music': ['mp3', 'wav', 'flac', 'ogg'],
-            'audio': ['mp3', 'wav', 'flac', 'ogg'],
-            'archives': ['zip', 'rar', '7z', 'tar', 'gz'],
-            'archive': ['zip', 'rar', '7z', 'tar', 'gz'],
+            'pdfs':        '.pdf',
+            'pdf':         '.pdf',
+            'documents':   ['doc', 'docx', 'pdf', 'txt'],
+            'document':    ['doc', 'docx', 'pdf', 'txt'],
+            'images':      ['jpg', 'jpeg', 'png', 'gif', 'bmp'],
+            'image':       ['jpg', 'jpeg', 'png', 'gif', 'bmp'],
+            'photos':      ['jpg', 'jpeg', 'png'],
+            'photo':       ['jpg', 'jpeg', 'png'],
+            'videos':      ['mp4', 'avi', 'mov', 'mkv'],
+            'video':       ['mp4', 'avi', 'mov', 'mkv'],
+            'music':       ['mp3', 'wav', 'flac', 'ogg'],
+            'audio':       ['mp3', 'wav', 'flac', 'ogg'],
+            'archives':    ['zip', 'rar', '7z', 'tar', 'gz'],
+            'archive':     ['zip', 'rar', '7z', 'tar', 'gz'],
             'executables': ['exe', 'msi', 'app'],
-            'executable': ['exe', 'msi', 'app']
+            'executable':  ['exe', 'msi', 'app'],
+            'spreadsheets':['xlsx', 'xls', 'csv'],
+            'spreadsheet': ['xlsx', 'xls', 'csv'],
+            'scripts':     ['py', 'js', 'sh', 'bat', 'ps1'],
+            'script':      ['py', 'js', 'sh', 'bat', 'ps1'],
         }
-        
+
         for keyword, extensions in type_keywords.items():
             if keyword in command_text:
                 if isinstance(extensions, list):
                     file_types.extend(extensions)
                 else:
                     file_types.append(extensions)
-        
-        # Look for specific extensions
+
+        # Explicit extensions like ".pdf", ".docx"
         ext_matches = re.findall(r'\.([a-zA-Z0-9]+)', command_text)
         if ext_matches:
             file_types.extend(ext_matches)
-        
+
         return list(set(file_types)) if file_types else None
-    
+
     def _extract_time_constraint(self, command_text):
-        """Extract time constraints from command text"""
+        """Extract time constraints from command text."""
         for pattern, time_func in self.time_patterns.items():
             match = re.search(pattern, command_text)
             if match:
                 if len(match.groups()) > 0:
-                    # Pattern with capture group like "older than X days"
                     return time_func(int(match.group(1)))
                 else:
-                    # Simple pattern like "today"
                     return time_func()
-        
         return None
-    
+
     def _extract_destination(self, command_text):
-        """Extract destination folder from command text"""
-        # Look for "to X folder" pattern
-        match = re.search(r'to\s+([\w\s]+)\s+folder', command_text)
-        if match:
-            return match.group(1).strip()
-        
-        # Look for "to X directory" pattern
-        match = re.search(r'to\s+([\w\s]+)\s+directory', command_text)
-        if match:
-            return match.group(1).strip()
-        
-        # Look for "to X" pattern at the end
-        match = re.search(r'to\s+([\w\s]+)$', command_text)
-        if match:
-            return match.group(1).strip()
-        
+        """Extract destination folder from command text.
+
+        Supports the full set of destination prepositions recognised by the
+        synonym-normalisation step (to, into, in, inside).
+        """
+        # "to/into/in/inside X folder"
+        for prep in _DESTINATION_PREPS:
+            match = re.search(
+                rf'\b{re.escape(prep)}\s+([\w\s]+?)\s+(?:folder|directory)\b',
+                command_text
+            )
+            if match:
+                return match.group(1).strip()
+
+        # "to/into X" at end of string
+        for prep in _DESTINATION_PREPS:
+            match = re.search(
+                rf'\b{re.escape(prep)}\s+([\w\s]+)$',
+                command_text
+            )
+            if match:
+                candidate = match.group(1).strip()
+                # Ignore common noise words
+                if candidate not in ('the', 'a', 'an'):
+                    return candidate
+
         return None
-    
+
     def _extract_source(self, command_text):
-        """Extract source folder from command text"""
-        # Look for "in X folder" pattern
-        match = re.search(r'in\s+([\w\s]+)\s+folder', command_text)
-        if match:
-            return match.group(1).strip()
-        
-        # Look for "from X folder" pattern
+        """Extract source folder from command text."""
+        # "in/from/within X folder"
+        for prep in _SOURCE_PREPS:
+            match = re.search(
+                rf'\b{re.escape(prep)}\s+([\w\s]+?)\s+(?:folder|directory)\b',
+                command_text
+            )
+            if match:
+                return match.group(1).strip()
+
+        # "from X folder" – already handled above, but keep legacy patterns
         match = re.search(r'from\s+([\w\s]+)\s+folder', command_text)
         if match:
             return match.group(1).strip()
-        
-        # Look for "X folder" pattern at the beginning
+
+        # "X folder" at the start
         match = re.search(r'^([\w\s]+)\s+folder', command_text)
         if match:
             return match.group(1).strip()
-        
+
         return None
-    
+
+    # ------------------------------------------------------------------
+    # Date helpers
+    # ------------------------------------------------------------------
+
     def _get_today(self):
-        """Get today's date constraint"""
         today = datetime.date.today()
-        return {
-            'type': 'date',
-            'operator': '==',
-            'value': today
-        }
-    
+        return {'type': 'date', 'operator': '==', 'value': today}
+
     def _get_yesterday(self):
-        """Get yesterday's date constraint"""
         yesterday = datetime.date.today() - datetime.timedelta(days=1)
-        return {
-            'type': 'date',
-            'operator': '==',
-            'value': yesterday
-        }
-    
+        return {'type': 'date', 'operator': '==', 'value': yesterday}
+
     def _get_last_week(self):
-        """Get last week's date constraint"""
         one_week_ago = datetime.date.today() - datetime.timedelta(days=7)
-        return {
-            'type': 'date',
-            'operator': '>',
-            'value': one_week_ago
-        }
-    
+        return {'type': 'date', 'operator': '>', 'value': one_week_ago}
+
     def _get_last_month(self):
-        """Get last month's date constraint"""
         one_month_ago = datetime.date.today() - datetime.timedelta(days=30)
-        return {
-            'type': 'date',
-            'operator': '>',
-            'value': one_month_ago
-        }
-    
+        return {'type': 'date', 'operator': '>', 'value': one_month_ago}
+
     def _get_older_than_days(self, days):
-        """Get date constraint for files older than X days"""
         x_days_ago = datetime.date.today() - datetime.timedelta(days=days)
-        return {
-            'type': 'date',
-            'operator': '<',
-            'value': x_days_ago
-        }
-    
+        return {'type': 'date', 'operator': '<', 'value': x_days_ago}
+
+    # ------------------------------------------------------------------
+    # Execution engine (unchanged)
+    # ------------------------------------------------------------------
+
     def execute_command(self, parsed_command, file_ops):
-        """Execute a parsed command using the file operations
-        
+        """Execute a parsed command using the file operations.
+
         Args:
-            parsed_command: The parsed command dictionary
-            file_ops: FileOperations instance
-            
+            parsed_command: The parsed command dictionary.
+            file_ops: ``FileOperations`` instance.
+
         Returns:
-            tuple: (success, message)
+            tuple: ``(success: bool, message: str)``
         """
         try:
             action = parsed_command.get('action')
-            
+
             if action == 'move':
                 return self._execute_move_command(parsed_command, file_ops)
             elif action == 'copy':
                 return self._execute_copy_command(parsed_command, file_ops)
-            elif action in ['organize', 'sort']:
+            elif action in ('organize', 'sort'):
                 return self._execute_organize_command(parsed_command, file_ops)
             elif action == 'find':
                 return self._execute_find_command(parsed_command, file_ops)
@@ -353,33 +607,27 @@ class CommandParser:
                 return self._execute_rename_command(parsed_command, file_ops)
             else:
                 return False, f"Unknown action: {action}"
-                
+
         except Exception as e:
             logging.error(f"Error executing command: {e}")
             return False, f"Error: {str(e)}"
-    
+
     def _execute_move_command(self, command, file_ops):
-        """Execute a move command"""
-        # Get destination folder
+        """Execute a move command."""
         destination = command.get('destination')
         if not destination:
             return False, "No destination specified"
-        
-        # Get files to move based on file types and time constraints
+
         files = self._get_files_matching_criteria(command, file_ops.base_dir)
-        
         if not files:
             return False, "No matching files found"
-        
-        # Start batch operations
+
         file_ops.start_operations()
-        
-        # Move files using FileOperations API with category_path
+
         moved_count = 0
         failed_count = 0
         for file in files:
             try:
-                # Use destination as category_path (will be created relative to base_dir)
                 result = file_ops.move_file(file, destination, skip_confirmation=True)
                 if result:
                     moved_count += 1
@@ -388,10 +636,9 @@ class CommandParser:
             except Exception as e:
                 logging.error(f"Error moving file {file}: {e}")
                 failed_count += 1
-        
-        # Finalize operations
+
         file_ops.finalize_operations()
-        
+
         if moved_count > 0:
             msg = f"Moved {moved_count} file(s) to {destination}"
             if failed_count > 0:
@@ -399,29 +646,23 @@ class CommandParser:
             return True, msg
         else:
             return False, f"Failed to move files. {failed_count} errors occurred."
-    
+
     def _execute_copy_command(self, command, file_ops):
-        """Execute a copy command"""
-        # Get destination folder
+        """Execute a copy command."""
         destination = command.get('destination')
         if not destination:
             return False, "No destination specified"
-        
-        # Get files to copy based on file types and time constraints
+
         files = self._get_files_matching_criteria(command, file_ops.base_dir)
-        
         if not files:
             return False, "No matching files found"
-        
-        # Start batch operations
+
         file_ops.start_operations()
-        
-        # Copy files using FileOperations API with category_path
+
         copied_count = 0
         failed_count = 0
         for file in files:
             try:
-                # Use destination as category_path (will be created relative to base_dir)
                 result = file_ops.copy_file(file, destination)
                 if result:
                     copied_count += 1
@@ -430,10 +671,9 @@ class CommandParser:
             except Exception as e:
                 logging.error(f"Error copying file {file}: {e}")
                 failed_count += 1
-        
-        # Finalize operations
+
         file_ops.finalize_operations()
-        
+
         if copied_count > 0:
             msg = f"Copied {copied_count} file(s) to {destination}"
             if failed_count > 0:
@@ -441,29 +681,25 @@ class CommandParser:
             return True, msg
         else:
             return False, f"Failed to copy files. {failed_count} errors occurred."
-    
+
     def _execute_organize_command(self, command, file_ops):
-        """Execute an organize command"""
+        """Execute an organize command."""
         source = command.get('source')
         method = command.get('method', 'type')
-        
-        # If no source specified, use the entire base_dir
+
         if source:
             source_path = Path(file_ops.base_dir) / source
             if not source_path.exists() or not source_path.is_dir():
                 return False, f"Source folder '{source}' not found"
         else:
             source_path = Path(file_ops.base_dir)
-        
-        # Get all files in source path
+
         files = [f for f in source_path.glob('*') if f.is_file()]
-        
         if not files:
             return False, "No files found in source folder"
-        
-        # Start batch operations
+
         file_ops.start_operations()
-        
+
         organized_count = 0
         failed_count = 0
         for file in files:
@@ -471,11 +707,9 @@ class CommandParser:
                 if method == 'type':
                     category = file_ops.categorize_file(file)
                 elif method == 'date':
-                    # Organize by date (YYYY-MM)
                     mtime = datetime.datetime.fromtimestamp(file.stat().st_mtime)
                     category = f"By Date/{mtime.strftime('%Y-%m')}"
                 elif method == 'size':
-                    # Organize by size
                     size_kb = file.stat().st_size / 1024
                     if size_kb < 100:
                         category = "By Size/Small (< 100KB)"
@@ -487,7 +721,7 @@ class CommandParser:
                         category = "By Size/Very Large (> 10MB)"
                 else:
                     category = "Unsorted"
-                
+
                 result = file_ops.move_file(file, category, skip_confirmation=True)
                 if result:
                     organized_count += 1
@@ -496,10 +730,9 @@ class CommandParser:
             except Exception as e:
                 logging.error(f"Error organizing file {file}: {e}")
                 failed_count += 1
-        
-        # Finalize operations
+
         file_ops.finalize_operations()
-        
+
         source_name = source if source else "base directory"
         if organized_count > 0:
             msg = f"Organized {organized_count} file(s) from {source_name}"
@@ -508,134 +741,127 @@ class CommandParser:
             return True, msg
         else:
             return False, f"Failed to organize files. {failed_count} errors occurred."
-    
+
     def _execute_find_command(self, command, file_ops):
-        """Execute a find command"""
-        # This would typically return results rather than moving files
+        """Execute a find command."""
         files = self._get_files_matching_criteria(command, file_ops.base_dir)
-        
         if not files:
             return False, "No matching files found"
-            
-        # For now, just return the count and some example files
+
         examples = [f.name for f in files[:5]]
-        examples_str = ", ".join(examples)
-        
+        examples_str = ', '.join(examples)
         if len(files) > 5:
             examples_str += f" and {len(files) - 5} more"
-            
+
         return True, f"Found {len(files)} files: {examples_str}"
-    
+
     def _execute_delete_command(self, command, file_ops):
-        """Execute a delete command"""
-        # This is potentially dangerous, so we require time constraints
+        """Execute a delete command (dry-run for safety)."""
         if not command.get('time_constraint'):
             return False, "Time constraint required for deletion commands"
-            
+
         files = self._get_files_matching_criteria(command, file_ops.base_dir)
-        
         if not files:
             return False, "No matching files found"
-            
-        # For safety, we'll just return what would be deleted
+
         examples = [f.name for f in files[:5]]
-        examples_str = ", ".join(examples)
-        
+        examples_str = ', '.join(examples)
         if len(files) > 5:
             examples_str += f" and {len(files) - 5} more"
-            
+
         return True, f"Would delete {len(files)} files: {examples_str}"
-    
+
     def _execute_rename_command(self, command, file_ops):
-        """Execute a rename command"""
+        """Execute a rename command."""
         pattern = command.get('pattern')
         if not pattern:
             return False, "No rename pattern specified"
-            
+
         files = self._get_files_matching_criteria(command, file_ops.base_dir)
-        
         if not files:
             return False, "No matching files found"
-            
+
         renamed_count = 0
         for file in files:
             try:
                 if pattern == 'date':
-                    # Add date to filename
                     mtime = datetime.datetime.fromtimestamp(file.stat().st_mtime)
                     date_str = mtime.strftime('%Y-%m-%d')
                     new_name = f"{file.stem}_{date_str}{file.suffix}"
                 elif pattern == 'sequential':
-                    # Add sequential number
-                    new_name = f"{file.stem}_{renamed_count+1:03d}{file.suffix}"
+                    new_name = f"{file.stem}_{renamed_count + 1:03d}{file.suffix}"
                 elif pattern == 'lowercase':
-                    # Convert to lowercase
                     new_name = file.name.lower()
                 elif pattern == 'uppercase':
-                    # Convert to uppercase
                     new_name = file.name.upper()
                 else:
                     continue
-                    
+
                 new_path = file.parent / new_name
                 file.rename(new_path)
                 renamed_count += 1
             except Exception as e:
                 logging.error(f"Error renaming file {file}: {e}")
-                
+
         return True, f"Renamed {renamed_count} files"
-    
+
+    # ------------------------------------------------------------------
+    # File-matching helper
+    # ------------------------------------------------------------------
+
     def _get_files_matching_criteria(self, command, base_dir):
-        """Get files matching the criteria in the command"""
-        # Validate base_dir exists
+        """Return a list of ``Path`` objects matching the criteria in *command*."""
         base_path = Path(base_dir)
         if not base_path.exists() or not base_path.is_dir():
             logging.error(f"Base directory does not exist: {base_dir}")
             return []
-        
-        # Start with all files in the base directory
+
         try:
             all_files = list(base_path.glob('**/*'))
             matching_files = [f for f in all_files if f.is_file()]
         except Exception as e:
             logging.error(f"Error scanning directory {base_dir}: {e}")
             return []
-        
-        # Filter by file types if specified
+
+        # ── Filter by file types ────────────────────────────────────────
         file_types = command.get('file_types')
         if file_types:
-            matching_files = [f for f in matching_files if any(f.name.lower().endswith(f'.{ext.lower()}') for ext in file_types)]
-        
-        # Filter by time constraint if specified
+            matching_files = [
+                f for f in matching_files
+                if any(f.name.lower().endswith(f'.{ext.lower()}') for ext in file_types)
+            ]
+
+        # ── Filter by time constraint ───────────────────────────────────
         time_constraint = command.get('time_constraint')
         if time_constraint:
             operator = time_constraint.get('operator')
-            value = time_constraint.get('value')
-            
-            filtered_files = []
+            value    = time_constraint.get('value')
+
+            filtered = []
             for file in matching_files:
                 try:
                     mtime = datetime.datetime.fromtimestamp(file.stat().st_mtime).date()
-                    
                     if operator == '==' and mtime == value:
-                        filtered_files.append(file)
+                        filtered.append(file)
                     elif operator == '>' and mtime > value:
-                        filtered_files.append(file)
+                        filtered.append(file)
                     elif operator == '<' and mtime < value:
-                        filtered_files.append(file)
+                        filtered.append(file)
                 except Exception as e:
                     logging.error(f"Error checking file time for {file}: {e}")
-                    
-            matching_files = filtered_files
-        
-        # Filter by source if specified
+            matching_files = filtered
+
+        # ── Filter by source ────────────────────────────────────────────
         source = command.get('source')
         if source:
             source_path = base_path / source
             if source_path.exists():
-                matching_files = [f for f in matching_files if source_path in f.parents or f.parent == source_path]
+                matching_files = [
+                    f for f in matching_files
+                    if source_path in f.parents or f.parent == source_path
+                ]
             else:
                 logging.warning(f"Source path does not exist: {source_path}")
                 return []
-        
+
         return matching_files
