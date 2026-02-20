@@ -7,18 +7,12 @@ import logging
 
 logger = logging.getLogger('Sortify')
 
-# Try to import spacy, but make it optional
-# This prevents crashes if PyTorch/spaCy dependencies aren't available
-try:
-    import spacy
-    import spacy.util
-    SPACY_AVAILABLE = True
-except ImportError:
-    SPACY_AVAILABLE = False
-    logger.warning("spacy module not found. AI categorization will be limited to pattern matching.")
-except Exception as e:
-    SPACY_AVAILABLE = False
-    logger.warning(f"Error importing spacy: {e}. AI categorization will be limited to pattern matching.")
+# spaCy is loaded lazily in the background thread (ModelLoaderThread) and
+# injected via set_nlp_model().  We do NOT import it here at module level:
+# on some Windows systems the torch/c10.dll it depends on can only be
+# initialised after a main-thread pre-warm, so an eager import here would
+# produce a noisy WinError 1114 before the UI even appears.
+SPACY_AVAILABLE = False  # updated to True by set_nlp_model() at runtime
 
 # Guard-import the advanced ML classifier.  We import lazily (inside the class)
 # to avoid circular-import issues and to keep startup cost near zero.
@@ -106,41 +100,11 @@ class FileCategorizationAI:
             }
         }
         
-        # Only try to load spaCy if not provided and spaCy is available
-        if self.nlp is None and SPACY_AVAILABLE:
-            try:
-                logger.info("Attempting to load spaCy model")
-                # When running as a PyInstaller bundle, load the model by direct path.
-                # spacy.load('en_core_web_sm') relies on entry points which don't exist
-                # in a frozen bundle — loading by path always works.
-                if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-                    import os
-                    model_path = os.path.join(sys._MEIPASS, 'en_core_web_sm')
-                    logger.info(f"Frozen bundle: loading spaCy model from path: {model_path}")
-                    # The package is bundled as en_core_web_sm/en_core_web_sm-X.Y.Z/
-                    # (a versioned subfolder that contains config.cfg). Probe for it.
-                    if os.path.isdir(model_path) and not os.path.isfile(os.path.join(model_path, 'config.cfg')):
-                        for sub in os.listdir(model_path):
-                            candidate = os.path.join(model_path, sub)
-                            if os.path.isdir(candidate) and os.path.isfile(os.path.join(candidate, 'config.cfg')):
-                                model_path = candidate
-                                logger.info(f"Resolved versioned model subfolder: {model_path}")
-                                break
-                    self.nlp = spacy.load(model_path)
-                else:
-                    self.nlp = spacy.load('en_core_web_sm')
-                self.ai_enabled = True
-                logger.info("✓ spaCy model loaded - AI categorization enabled")
-            except OSError as e:
-                logger.warning(f"spaCy model not available: {e}")
-                logger.info("Continuing with basic pattern-based categorization")
-                self.ai_enabled = False
-            except Exception as e:
-                logger.warning(f"Unexpected error loading spaCy: {e}")
-                logger.info("Continuing with basic pattern-based categorization")
-                self.ai_enabled = False
-        elif self.nlp is None and not SPACY_AVAILABLE:
-            logger.info("spaCy not available - using basic pattern-based categorization")
+        # spaCy model is injected later via set_nlp_model() once the
+        # background ModelLoaderThread has successfully loaded it.
+        # We never attempt to load it here to avoid triggering DLL issues
+        # before the main-thread pre-warm has run.
+        if self.nlp is None:
             self.ai_enabled = False
         
         # Lazy ML classifier — bootstrapped on first use (see _get_ml_classifier).
