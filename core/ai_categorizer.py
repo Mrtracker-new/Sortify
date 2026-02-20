@@ -52,6 +52,63 @@ except Exception as e:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 
+# ---------------------------------------------------------------------------
+# Built-in bootstrap training corpus
+# ---------------------------------------------------------------------------
+# One synthetic feature-string per known Sortify category.  These keyword bags
+# are intentionally simple — the goal is to give every category a meaningful
+# prototype so the TF-IDF / Naive Bayes model can work out of the box without
+# any real files.  When real sorted files are available, auto_train_if_needed()
+# will progressively upgrade these prototypes.
+# ---------------------------------------------------------------------------
+_BOOTSTRAP_CORPUS: list[tuple[str, str]] = [
+    # documents
+    ("invoice receipt payment bill statement tax pdf report",       "documents/pdf"),
+    ("word document report essay letter memo rtf docx odt",        "documents/word"),
+    ("spreadsheet budget table data rows columns xls xlsx ods csv","documents/excel"),
+    ("slide deck presentation pptx ppt odp show keynote",         "documents/powerpoint"),
+    ("plain text readme notes log txt md rst",                     "documents/text"),
+    # images
+    ("photo picture jpg jpeg jfif portrait landscape snapshot",    "images/jpg"),
+    ("screenshot png graphic icon ui transparent clip",            "images/png"),
+    ("animation gif meme loop frame sprite",                       "images/gif"),
+    ("bitmap bmp raster pixel",                                    "images/bmp"),
+    ("webp compressed image modern web",                           "images/webp"),
+    ("heic heif apple iphone photo",                               "images/heic"),
+    ("tiff tif scanned document high quality raw",                 "images/tiff"),
+    ("svg vector ai eps illustrator graphic design",               "images/vector"),
+    ("raw cr2 nef arw dng camera unprocessed",                     "images/raw"),
+    # ai images
+    ("chatgpt dalle gpt openai generated ai image",               "ai_images/chatgpt"),
+    ("midjourney mj ai art dream generated",                      "ai_images/midjourney"),
+    ("stable diffusion sd ai generative img2img",                  "ai_images/stable_diffusion"),
+    ("bing ai image creator microsoft generated",                  "ai_images/bing"),
+    # videos
+    ("video movie film mp4 mkv avi mov hdvideo",                  "videos/movies"),
+    ("shorts clip webm reel youtube brief",                        "videos/shorts"),
+    ("whatsapp wa chat video mp4 3gp mobile",                      "videos/whatsapp"),
+    ("telegram tg channel video clip",                             "videos/telegram"),
+    ("instagram ig reels story video",                             "videos/instagram"),
+    ("facebook fb watch video mp4",                                "videos/facebook"),
+    ("youtube yt download video mkv mp4",                          "videos/youtube"),
+    # audio
+    ("music mp3 flac wav aac album track song artist",            "audio/music"),
+    ("voice recording ogg wma speech memo podcast",               "audio/voice"),
+    # code
+    ("python script code py function class import module",        "code/python"),
+    ("javascript html css web page browser jsx tsx node",         "code/web"),
+    ("sql database json xml yaml data schema config",             "code/data"),
+    ("shell bash powershell batch ps1 bat sh command",            "code/scripts"),
+    # archives
+    ("zip archive compressed rar tar 7z gz bundle",               "archives/compressed"),
+    ("iso disk image img virtual cd dvd",                         "archives/disk_images"),
+    # office
+    ("template dotx potx xltx office style",                     "office/templates"),
+    ("outlook email pst ost msg mailbox",                          "office/outlook"),
+    ("access database accdb mdb query table",                      "office/database"),
+]
+
+
 def _run_with_timeout(func, args=(), kwargs=None, timeout_seconds=10):
     """Execute a function with a timeout limit.
     
@@ -440,7 +497,12 @@ class AIFileClassifier:
         self.extraction_failures = []  # List of files where content extraction failed
         self.extraction_warnings = {}  # Dict mapping file paths to warning messages
         
-        # Load existing model if available
+        # Bootstrap on the built-in keyword corpus so the model is usable right away.
+        # This runs before load_model() so a persisted model (progressive learning)
+        # always wins — it simply overwrites the bootstrap state.
+        self._bootstrap_train()
+        
+        # Override with persisted model if available (preserves progressive learning)
         if model_path and os.path.exists(model_path):
             self.load_model(model_path)
             
@@ -887,6 +949,110 @@ class AIFileClassifier:
                 'error': str(e)
             }
     
+    # ------------------------------------------------------------------
+    # Bootstrap + progressive training
+    # ------------------------------------------------------------------
+
+    def _bootstrap_train(self):
+        """Train on the built-in keyword corpus — called at __init__ time.
+
+        Uses ``_BOOTSTRAP_CORPUS`` (module-level constant) so the model is
+        always usable from the moment it is constructed, with no real files
+        and no user intervention required.
+        """
+        texts      = [text for text, _ in _BOOTSTRAP_CORPUS]
+        categories = [cat  for _, cat  in _BOOTSTRAP_CORPUS]
+        try:
+            if self.classifier_type == 'sentence_transformer':
+                self.model.train(texts, categories)
+            else:
+                self.model.fit(texts, categories)
+            self.categories = list(set(categories))
+            self.trained = True
+            logging.debug(
+                "AIFileClassifier bootstrapped on built-in corpus (%d samples, %d categories)",
+                len(texts), len(self.categories)
+            )
+        except Exception as e:
+            # Bootstrap failure must never crash the app — log and move on.
+            logging.warning("Bootstrap training failed (%s); model is untrained until real data arrives.", e)
+
+    def safe_predict(self, file_path, confidence_threshold: float = 0.6) -> dict | None:
+        """Predict category for *file_path*, gated by a confidence threshold.
+
+        Unlike :meth:`predict`, this method never raises.  It returns
+        ``None`` whenever the model is not trained or the top confidence
+        score is below *confidence_threshold* — so callers can fall
+        through to the next strategy without extra try/except.
+
+        Args:
+            file_path: Path to the file to classify.
+            confidence_threshold: Minimum confidence score to accept the
+                prediction (0–1). Default 0.6 — conservative enough to
+                avoid false positives on the bootstrap prototype.
+
+        Returns:
+            dict with ``category`` and ``confidence`` keys, or ``None``.
+        """
+        if not self.trained:
+            return None
+        try:
+            result = self.predict(file_path)
+            if result and result.get('confidence', 0.0) >= confidence_threshold:
+                return result
+            return None
+        except Exception as e:
+            logging.debug("safe_predict: skipping %s — %s", file_path, e)
+            return None
+
+    def auto_train_if_needed(self, base_dir=None, model_path: str | None = None) -> bool:
+        """Progressive learning: re-train from already-sorted files in *base_dir*.
+
+        Scans *base_dir* recursively (using the same folder-structure label
+        convention as :meth:`train_from_directory`) and rebuilds the model
+        if at least 3 samples per category are found.  Falls back silently
+        when there is not enough data — the bootstrap model keeps working.
+
+        Args:
+            base_dir: Root of the sorted output tree (e.g. ``~/Sortify``). 
+                      Pass ``None`` to skip progressive learning and keep
+                      the bootstrap model.
+            model_path: If provided, save the freshly trained model here
+                        so the next run can skip re-training.
+
+        Returns:
+            ``True`` if a progressive model was trained, ``False`` otherwise.
+        """
+        if base_dir is None:
+            logging.debug("auto_train_if_needed: no base_dir supplied, keeping bootstrap model.")
+            return False
+
+        base_dir = Path(base_dir)
+        if not base_dir.exists():
+            logging.debug("auto_train_if_needed: base_dir does not exist: %s", base_dir)
+            return False
+
+        try:
+            result = self.train_from_directory(base_dir, min_samples_per_category=3)
+            if result.get('success', False):
+                logging.info(
+                    "Progressive training complete: %d files, %.1f%% accuracy.",
+                    result.get('total_files', 0),
+                    result.get('accuracy', 0.0) * 100,
+                )
+                if model_path:
+                    self.save_model(model_path)
+                return True
+            else:
+                logging.debug(
+                    "auto_train_if_needed: not enough sorted data yet — %s",
+                    result.get('error', 'unknown reason')
+                )
+                return False
+        except Exception as e:
+            logging.warning("auto_train_if_needed failed (%s); bootstrap model retained.", e)
+            return False
+
     def save_model(self, model_path):
         """Save the trained model to disk"""
         if not self.trained:
