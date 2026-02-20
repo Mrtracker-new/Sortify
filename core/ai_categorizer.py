@@ -78,6 +78,46 @@ def _run_with_timeout(func, args=(), kwargs=None, timeout_seconds=10):
             raise TimeoutError(f"Function {func.__name__} exceeded timeout of {timeout_seconds} seconds")
 
 
+def compute_file_hash(file_path):
+    """Compute a content-based MD5 hash for a file.
+
+    Uses optimised partial hashing for large files to balance speed and
+    uniqueness: files under 1 MB are fully hashed; larger files use the
+    first 64 KB + last 64 KB + file size.
+
+    This is the **single authoritative implementation** used by both
+    ``ContentCache`` and ``AIFileClassifier`` so that the two caches always
+    produce identical keys for the same file.
+
+    Args:
+        file_path: Path-like object for the file.
+
+    Returns:
+        str: MD5 hex-digest of the file content, or ``None`` on error.
+    """
+    try:
+        stat = file_path.stat()
+        file_size = stat.st_size
+
+        # Small files (<1 MB) – hash the entire content
+        if file_size < 1024 * 1024:
+            with open(file_path, 'rb') as f:
+                return hashlib.md5(f.read()).hexdigest()
+
+        # Large files – hash first 64 KB + last 64 KB + size
+        hash_obj = hashlib.md5()
+        with open(file_path, 'rb') as f:
+            hash_obj.update(f.read(65536))
+            f.seek(max(0, file_size - 65536))
+            hash_obj.update(f.read(65536))
+            hash_obj.update(str(file_size).encode())
+
+        return hash_obj.hexdigest()
+    except Exception as e:
+        logging.debug(f"Error computing file hash for {file_path}: {e}")
+        return None
+
+
 class LRUCache:
     """LRU (Least Recently Used) Cache implementation with automatic eviction.
     
@@ -171,44 +211,19 @@ class ContentCache:
         self.cache = LRUCache(max_size=max_size)
     
     def get_file_hash(self, file_path):
-        """Generate a unique hash for a file based on file content.
-        
-        Uses optimized partial hashing for large files to balance performance
-        and uniqueness. Files under 1MB are fully hashed, larger files use
-        first 64KB + last 64KB + file size.
-        
+        """Generate a unique hash for a file based on its content.
+
+        Delegates to the module-level :func:`compute_file_hash` so that
+        ``ContentCache`` and ``AIFileClassifier`` always share the same
+        hashing strategy and produce identical cache keys.
+
         Args:
-            file_path: Path object for the file
-            
+            file_path: Path object for the file.
+
         Returns:
-            str: MD5 hash of file content
+            str: MD5 hash of file content, or ``None`` on error.
         """
-        try:
-            stat = file_path.stat()
-            file_size = stat.st_size
-            
-            # For small files (<1MB), hash the entire content
-            if file_size < 1024 * 1024:
-                with open(file_path, 'rb') as f:
-                    content = f.read()
-                    return hashlib.md5(content).hexdigest()
-            
-            # For large files, hash: first 64KB + last 64KB + size
-            # This is fast and provides good uniqueness
-            hash_obj = hashlib.md5()
-            with open(file_path, 'rb') as f:
-                # First chunk
-                hash_obj.update(f.read(65536))
-                # Seek to end and read last chunk
-                f.seek(max(0, file_size - 65536))
-                hash_obj.update(f.read(65536))
-                # Include file size
-                hash_obj.update(str(file_size).encode())
-            
-            return hash_obj.hexdigest()
-        except Exception as e:
-            logging.debug(f"Error generating file hash for {file_path}: {e}")
-            return None
+        return compute_file_hash(file_path)
     
     def get_content(self, file_path):
         """Retrieve cached content for a file.
@@ -456,38 +471,19 @@ class AIFileClassifier:
 
     
     def _compute_file_hash(self, file_path):
-        """Compute content hash for a file (optimized for large files).
-        
-        Uses the same logic as ContentCache.get_file_hash() to ensure
-        consistent cache keys across the classifier.
-        
+        """Compute content hash for a file.
+
+        Delegates to the module-level :func:`compute_file_hash` so that
+        ``AIFileClassifier`` and ``ContentCache`` always produce identical
+        cache keys for the same file.
+
         Args:
-            file_path: Path object for the file
-            
+            file_path: Path object for the file.
+
         Returns:
-            str: MD5 hash of file content, or None on error
+            str: MD5 hash of file content, or ``None`` on error.
         """
-        try:
-            stat = file_path.stat()
-            file_size = stat.st_size
-            
-            # For small files (<1MB), hash entire content
-            if file_size < 1024 * 1024:
-                with open(file_path, 'rb') as f:
-                    return hashlib.md5(f.read()).hexdigest()
-            
-            # For large files, hash first 64KB + last 64KB + size
-            hash_obj = hashlib.md5()
-            with open(file_path, 'rb') as f:
-                hash_obj.update(f.read(65536))
-                f.seek(max(0, file_size - 65536))
-                hash_obj.update(f.read(65536))
-                hash_obj.update(str(file_size).encode())
-            
-            return hash_obj.hexdigest()
-        except Exception as e:
-            logging.debug(f"Error computing file hash for {file_path}: {e}")
-            return None
+        return compute_file_hash(file_path)
     
     def _extract_pdf_text(self, file_path):
         """Extract text from PDF file using PyPDF2.
