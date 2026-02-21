@@ -1,5 +1,5 @@
 #define MyAppName "Sortify"
-#define MyAppVersion "2026.19.2"
+#define MyAppVersion "2026.2.22"
 #define MyAppPublisher "Rolan Lobo"
 #define MyAppURL ""
 #define MyAppExeName "Sortify.exe"
