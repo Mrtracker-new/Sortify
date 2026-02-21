@@ -207,14 +207,228 @@ _VERB_SYNONYMS = {
 }
 
 # Also maps colloquial destination prepositions
-_DESTINATION_PREPS = ['to', 'into', 'in', 'inside']
+_DESTINATION_PREPS = ['to', 'into', 'in', 'inside', 'at']
 _SOURCE_PREPS = ['from', 'in', 'inside', 'within']
+
+# Noise words that should never be treated as a folder name on their own
+_NOISE_WORDS = frozenset({'the', 'a', 'an', 'my', 'your', 'our', 'this', 'that'})
 
 
 def _normalise_command(text: str) -> str:
     """Replace synonym verbs in *text* with their canonical equivalents."""
     words = text.split()
     return ' '.join(_VERB_SYNONYMS.get(w, w) for w in words)
+
+
+# ---------------------------------------------------------------------------
+# Entity extractor – spaCy primary, regex fallback
+# ---------------------------------------------------------------------------
+
+class EntityExtractor:
+    """Extract destination and source folder names from natural-language commands.
+
+    **Primary strategy** – spaCy dependency parsing:
+    Walks the parsed token tree looking for prepositional-object (``pobj``)
+    tokens whose governing preposition is one of the known destination or
+    source prepositions.  Also considers named entities (``GPE``, ``ORG``,
+    ``PRODUCT``, ``FAC``) that appear after a relevant preposition.
+
+    **Absolute-path detection** (always active):
+    A regex is applied first to catch paths such as
+    ``C:/Users/alice/Documents/Work`` or ``/home/alice/files`` regardless
+    of spaCy availability.
+
+    **Regex fallback** – if spaCy (or ``en_core_web_sm``) is unavailable,
+    the original keyword-based patterns are used automatically.
+
+    Lazy-loaded and thread-safe (mirrors :class:`IntentClassifier`).
+    """
+
+    # Entity types that are credible folder/path candidates when NER is used
+    _USABLE_ENT_TYPES = frozenset({'GPE', 'ORG', 'PRODUCT', 'FAC', 'LOC', 'WORK_OF_ART'})
+
+    # Pre-compiled regex for absolute path detection (Windows & POSIX)
+    _ABS_PATH_RE = re.compile(
+        r'(?:[A-Za-z]:[/\\]|/)[\w/\\. -]+',
+        re.IGNORECASE
+    )
+
+    def __init__(self):
+        self._nlp = None
+        self._lock = threading.Lock()
+        self._available = None  # None = not yet tried
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _load(self) -> bool:
+        """Lazy-load ``en_core_web_sm``.  Idempotent, thread-safe.
+
+        Returns ``True`` if spaCy is ready, ``False`` otherwise.
+        """
+        if self._available is not None:
+            return self._available
+
+        try:
+            import spacy  # noqa: PLC0415
+            self._nlp = spacy.load('en_core_web_sm')
+            self._available = True
+            logging.info("EntityExtractor: spaCy en_core_web_sm loaded successfully")
+        except ImportError:
+            self._available = False
+            logging.info(
+                "EntityExtractor: spaCy not installed – using regex fallback"
+            )
+        except OSError:
+            self._available = False
+            logging.warning(
+                "EntityExtractor: en_core_web_sm model not found – "
+                "run `python -m spacy download en_core_web_sm`. "
+                "Falling back to regex."
+            )
+        except Exception as e:
+            self._available = False
+            logging.warning(f"EntityExtractor: spaCy load failed – {e}")
+
+        return self._available
+
+    # ------------------------------------------------------------------
+    # Span helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _noun_chunk_for_token(doc, token):
+        """Return the full noun-chunk text that contains *token*, or its text."""
+        for chunk in doc.noun_chunks:
+            if token.i >= chunk.start and token.i < chunk.end:
+                return chunk.text.strip()
+        return token.text.strip()
+
+    @staticmethod
+    def _clean(candidate: str) -> str | None:
+        """Strip leading noise words; return None if nothing useful remains."""
+        words = candidate.split()
+        while words and words[0].lower() in _NOISE_WORDS:
+            words = words[1:]
+        result = ' '.join(words).strip()
+        return result if result and result.lower() not in _NOISE_WORDS else None
+
+    # ------------------------------------------------------------------
+    # Extraction helpers shared by destination and source
+    # ------------------------------------------------------------------
+
+    def _spacy_pobj_extract(self, text: str, preps: list[str]) -> str | None:
+        """Use spaCy dependency parse to find pobj after any of *preps*.
+
+        Returns the best candidate string or ``None``.
+        """
+        with self._lock:
+            ready = self._load()
+
+        if not ready:
+            return None
+
+        doc = self._nlp(text)
+
+        # Pass 1 – dependency tree: pobj tokens whose head is a target prep
+        for token in doc:
+            if token.dep_ == 'pobj' and token.head.text.lower() in preps:
+                candidate = self._noun_chunk_for_token(doc, token)
+                cleaned = self._clean(candidate)
+                if cleaned:
+                    logging.debug(
+                        f"EntityExtractor: dep-parse found '{cleaned}' "
+                        f"(prep='{token.head.text}')"
+                    )
+                    return cleaned.lower()
+
+        # Pass 2 – NER: named entities appearing after a target preposition
+        for ent in doc.ents:
+            if ent.label_ not in self._USABLE_ENT_TYPES:
+                continue
+            # Check whether a target preposition appears just before this entity
+            if ent.start > 0:
+                prev_token = doc[ent.start - 1]
+                if prev_token.text.lower() in preps or (
+                    prev_token.text.lower() == 'the'
+                    and ent.start > 1
+                    and doc[ent.start - 2].text.lower() in preps
+                ):
+                    cleaned = self._clean(ent.text)
+                    if cleaned:
+                        logging.debug(
+                            f"EntityExtractor: NER found '{cleaned}' "
+                            f"(label={ent.label_})"
+                        )
+                        return cleaned.lower()
+
+        return None
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def extract_destination(
+        self,
+        text: str,
+        regex_fallback_fn,
+    ) -> str | None:
+        """Extract the destination folder from *text*.
+
+        Args:
+            text: Lower-cased command string.
+            regex_fallback_fn: Callable that accepts *text* and returns
+                ``str | None``.  Called when spaCy is unavailable or
+                returns nothing useful.
+
+        Returns:
+            Folder name / path string, or ``None``.
+        """
+        # Always-active: absolute / relative path detection
+        abs_match = self._ABS_PATH_RE.search(text)
+        if abs_match:
+            logging.debug(
+                f"EntityExtractor: abs-path found '{abs_match.group()}'"
+            )
+            return abs_match.group().strip()
+
+        # spaCy dependency + NER pass
+        spacy_result = self._spacy_pobj_extract(text, _DESTINATION_PREPS)
+        if spacy_result:
+            return spacy_result
+
+        # Regex fallback
+        return regex_fallback_fn(text)
+
+    def extract_source(
+        self,
+        text: str,
+        regex_fallback_fn,
+    ) -> str | None:
+        """Extract the source folder from *text*.
+
+        Args:
+            text: Lower-cased command string.
+            regex_fallback_fn: Callable that accepts *text* and returns
+                ``str | None``.
+
+        Returns:
+            Folder name / path string, or ``None``.
+        """
+        # spaCy dependency + NER pass (no abs-path check for source)
+        spacy_result = self._spacy_pobj_extract(text, _SOURCE_PREPS)
+        if spacy_result:
+            return spacy_result
+
+        # Regex fallback
+        return regex_fallback_fn(text)
+
+    @property
+    def is_available(self) -> bool:
+        """True if spaCy has been loaded successfully."""
+        return bool(self._available)
+
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +476,14 @@ class CommandParser:
         # Semantic intent classifier (lazy-loaded on first parse_command call)
         self._intent_clf = IntentClassifier()
 
+        # spaCy-powered entity extractor (lazy-loaded, falls back to regex)
+        self._entity_extractor = EntityExtractor()
+
+        # Thread-local storage: holds the *original* (pre-normalised) command
+        # text so that _extract_destination / _extract_source always see the
+        # user's words, not the synonym-substituted form.
+        self._tls = threading.local()
+
         logging.info("CommandParser initialised")
 
     # ------------------------------------------------------------------
@@ -286,8 +508,11 @@ class CommandParser:
 
         if intent != 'unknown' and intent in self.commands:
             logging.info(f"CommandParser: ST intent='{intent}' for '{command_text}'")
-            # Normalise synonyms before handing off to the regex extractor so
-            # that patterns like "shift photos to backup" still work.
+            # Store original text so entity extractors see the user's actual
+            # words (e.g. 'archive', 'backup'), not the synonym-normalised
+            # equivalents ('organize', 'copy').
+            self._tls.original_text = command_text
+            # Normalise synonyms before keyword checks in parse handlers.
             normalised = _normalise_command(command_text)
             return self.commands[intent](normalised)
 
@@ -503,10 +728,26 @@ class CommandParser:
     def _extract_destination(self, command_text):
         """Extract destination folder from command text.
 
-        Supports the full set of destination prepositions recognised by the
-        synonym-normalisation step (to, into, in, inside).
+        Uses :class:`EntityExtractor` (spaCy dependency parsing + NER +
+        absolute-path regex) as the primary strategy, falling back to
+        :meth:`_extract_destination_regex` when spaCy is unavailable.
+
+        .. important::
+            Entity extraction is **always** performed on the original
+            pre-normalised text (stored in :attr:`_tls.original_text`) so that
+            folder names like ``'archive'`` or ``'backup'``  are not silently
+            rewritten by :func:`_normalise_command` before we look at them.
         """
-        # "to/into/in/inside X folder"
+        # Prefer original text to avoid synonym-normalisation clobbering folder names
+        extract_text = getattr(self._tls, 'original_text', None) or command_text
+        return self._entity_extractor.extract_destination(
+            extract_text,
+            regex_fallback_fn=self._extract_destination_regex,
+        )
+
+    def _extract_destination_regex(self, command_text) -> str | None:
+        """Pure-regex destination extractor (fallback / tested independently)."""
+        # "to/into/in/inside/at X folder"
         for prep in _DESTINATION_PREPS:
             match = re.search(
                 rf'\b{re.escape(prep)}\s+([\w\s]+?)\s+(?:folder|directory)\b',
@@ -523,15 +764,36 @@ class CommandParser:
             )
             if match:
                 candidate = match.group(1).strip()
-                # Ignore common noise words
-                if candidate not in ('the', 'a', 'an'):
+                # Strip leading noise words
+                words = candidate.split()
+                while words and words[0].lower() in _NOISE_WORDS:
+                    words = words[1:]
+                candidate = ' '.join(words)
+                if candidate and candidate.lower() not in _NOISE_WORDS:
                     return candidate
 
         return None
 
     def _extract_source(self, command_text):
-        """Extract source folder from command text."""
-        # "in/from/within X folder"
+        """Extract source folder from command text.
+
+        Uses :class:`EntityExtractor` as the primary strategy, falling back
+        to :meth:`_extract_source_regex`.
+
+        .. important::
+            Entity extraction is performed on the original pre-normalised text
+            (from :attr:`_tls.original_text`) for the same reason as
+            :meth:`_extract_destination`.
+        """
+        extract_text = getattr(self._tls, 'original_text', None) or command_text
+        return self._entity_extractor.extract_source(
+            extract_text,
+            regex_fallback_fn=self._extract_source_regex,
+        )
+
+    def _extract_source_regex(self, command_text) -> str | None:
+        """Pure-regex source extractor (fallback / tested independently)."""
+        # "in/from/within/inside X folder"
         for prep in _SOURCE_PREPS:
             match = re.search(
                 rf'\b{re.escape(prep)}\s+([\w\s]+?)\s+(?:folder|directory)\b',
