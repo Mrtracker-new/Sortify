@@ -26,7 +26,7 @@ from unittest.mock import patch, MagicMock
 # Make `core` importable from the tests directory
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.command_parser import CommandParser, IntentClassifier
+from core.command_parser import CommandParser, EntityExtractor, IntentClassifier
 
 
 # ---------------------------------------------------------------------------
@@ -292,5 +292,233 @@ class TestCommandParserEndToEnd:
         assert 'find' in msg
 
 
+# ---------------------------------------------------------------------------
+# 4. Unit: EntityExtractor – spaCy dependency parsing + regex fallback
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def spacy_available():
+    """Return True iff spaCy *and* en_core_web_sm are available."""
+    try:
+        import spacy  # noqa: F401
+        spacy.load("en_core_web_sm")
+        return True
+    except (ImportError, OSError):
+        return False
+
+
+@pytest.fixture(scope="module")
+def real_extractor(spacy_available):
+    """EntityExtractor with spaCy loaded (or auto-skipped if unavailable)."""
+    if not spacy_available:
+        pytest.skip("spaCy / en_core_web_sm not installed")
+    ext = EntityExtractor()
+    ext._load()  # force-load so tests don't pay cold-start cost
+    return ext
+
+
+class TestEntityExtractor:
+    """
+    Covers the four failing cases identified in the audit plus regression
+    tests for the classic regex patterns.
+
+    Tests that require spaCy are auto-skipped when en_core_web_sm is missing.
+    """
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _regex_only_extractor():
+        """Return an EntityExtractor whose spaCy layer is forcibly disabled."""
+        ext = EntityExtractor()
+        ext._available = False  # skip load attempt
+        ext._nlp = None
+        return ext
+
+    # ------------------------------------------------------------------
+    # Audit failure cases – require spaCy
+    # ------------------------------------------------------------------
+
+    def test_no_folder_word(self, real_extractor):
+        """'to the Archive' – no word 'folder' – should still extract 'archive'."""
+        result = real_extractor.extract_destination(
+            "move pdfs to the archive",
+            regex_fallback_fn=lambda t: None,
+        )
+        assert result is not None, "Expected a destination but got None"
+        assert "archive" in result.lower(), (
+            f"Expected 'archive' in result, got: {result!r}"
+        )
+
+    def test_into_preposition(self, real_extractor):
+        """'into Backup' – preposition 'into' instead of 'to'."""
+        result = real_extractor.extract_destination(
+            "move files into backup",
+            regex_fallback_fn=lambda t: None,
+        )
+        assert result is not None, "Expected a destination but got None"
+        assert "backup" in result.lower(), (
+            f"Expected 'backup' in result, got: {result!r}"
+        )
+
+    def test_absolute_path_windows(self, real_extractor):
+        """Absolute Windows path – always detected regardless of spaCy."""
+        text = "move files to c:/users/rolan/documents/work"
+        result = real_extractor.extract_destination(
+            text,
+            regex_fallback_fn=lambda t: None,
+        )
+        assert result is not None, "Expected an absolute path destination but got None"
+        assert "rolan" in result.lower() or "documents" in result.lower(), (
+            f"Expected the path in result, got: {result!r}"
+        )
+
+    def test_stopword_destination(self, real_extractor):
+        """'to my documents' – leading stopword 'my' must be stripped."""
+        result = real_extractor.extract_destination(
+            "move photos to my documents",
+            regex_fallback_fn=lambda t: None,
+        )
+        assert result is not None, "Expected a destination but got None"
+        # After stripping 'my', 'documents' should survive
+        assert "documents" in result.lower(), (
+            f"Expected 'documents' in result, got: {result!r}"
+        )
+
+    # ------------------------------------------------------------------
+    # Absolute-path detection is always active (no spaCy needed)
+    # ------------------------------------------------------------------
+
+    def test_absolute_path_no_spacy(self):
+        """Absolute path is detected even when spaCy is disabled."""
+        ext = self._regex_only_extractor()
+        result = ext.extract_destination(
+            "move files to c:/users/rolan/documents/work",
+            regex_fallback_fn=lambda t: None,
+        )
+        assert result is not None
+        assert "rolan" in result.lower() or "documents" in result.lower()
+
+    # ------------------------------------------------------------------
+    # Regex fallback – spaCy disabled
+    # ------------------------------------------------------------------
+
+    def test_regex_fallback_classic_pattern(self):
+        """When spaCy is disabled the regex fallback must still work."""
+        ext = self._regex_only_extractor()
+        parser = CommandParser()
+        result = ext.extract_destination(
+            "move pdfs to archive folder",
+            regex_fallback_fn=parser._extract_destination_regex,
+        )
+        assert result is not None, "Regex fallback should find 'archive'"
+        assert "archive" in result.lower(), f"Got: {result!r}"
+
+    def test_regex_fallback_end_of_string(self):
+        """Regex end-of-string pattern: 'move photos to backup'."""
+        ext = self._regex_only_extractor()
+        parser = CommandParser()
+        result = ext.extract_destination(
+            "move photos to backup",
+            regex_fallback_fn=parser._extract_destination_regex,
+        )
+        assert result is not None
+        assert "backup" in result.lower()
+
+    # ------------------------------------------------------------------
+    # Source extraction
+    # ------------------------------------------------------------------
+
+    def test_source_from_preposition(self, real_extractor):
+        """'from downloads' – source folder extraction via 'from' preposition."""
+        result = real_extractor.extract_source(
+            "find files from downloads",
+            regex_fallback_fn=lambda t: None,
+        )
+        assert result is not None, "Expected a source but got None"
+        assert "downloads" in result.lower(), f"Got: {result!r}"
+
+    def test_source_regex_fallback(self):
+        """Source regex fallback: 'organize downloads folder'."""
+        ext = self._regex_only_extractor()
+        parser = CommandParser()
+        result = ext.extract_source(
+            "organize downloads folder",
+            regex_fallback_fn=parser._extract_source_regex,
+        )
+        assert result is not None
+        assert "downloads" in result.lower()
+
+    # ------------------------------------------------------------------
+    # Thread-safety
+    # ------------------------------------------------------------------
+
+    def test_thread_safety(self, real_extractor):
+        """Concurrent calls to extract_destination must not raise."""
+        import threading
+        errors = []
+
+        def _call():
+            try:
+                real_extractor.extract_destination(
+                    "move files to archive",
+                    regex_fallback_fn=lambda t: None,
+                )
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=_call) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Concurrent calls raised: {errors}"
+
+    # ------------------------------------------------------------------
+    # CommandParser integration – full pipeline with EntityExtractor
+    # ------------------------------------------------------------------
+
+    def test_parse_command_no_folder_word(self, spacy_available):
+        """CommandParser.parse_command handles 'to the Archive' end-to-end.
+
+        The intent classifier may return 'move' or 'copy' depending on model
+        state – both are valid relocate-style actions.  What we care about
+        here is that EntityExtractor correctly surfaces 'archive' as the
+        destination even though the word 'folder' is absent.
+        """
+        if not spacy_available:
+            pytest.skip("spaCy / en_core_web_sm not installed")
+        parser = CommandParser()
+        result = parser.parse_command("move all pdfs to the archive")
+        assert result.get("action") in ("move", "copy"), (
+            f"Expected 'move' or 'copy', got {result.get('action')!r}. "
+            f"Full result: {result}"
+        )
+        dest = result.get("destination", "")
+        assert dest and "archive" in dest.lower(), (
+            f"Expected 'archive' in destination, got: {dest!r}"
+        )
+
+    def test_parse_command_into_prep(self, spacy_available):
+        """CommandParser.parse_command handles 'into Backup'.
+
+        Accepts move or copy – the entity extraction of 'backup' is what
+        we're validating, not the intent classification.
+        """
+        if not spacy_available:
+            pytest.skip("spaCy / en_core_web_sm not installed")
+        parser = CommandParser()
+        result = parser.parse_command("move images into backup")
+        assert result.get("action") in ("move", "copy"), (
+            f"Expected 'move' or 'copy', got {result.get('action')!r}"
+        )
+        dest = result.get("destination", "")
+        assert dest and "backup" in dest.lower(), f"Got: {dest!r}"
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
