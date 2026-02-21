@@ -800,11 +800,19 @@ def main():
     splash = None
     if splash_base.exists():
         # Create splash
-        pixmap = QPixmap(str(splash_base))
+        from PyQt6.QtGui import QPainter
+        raw_pixmap = QPixmap(str(splash_base))
         # Optional: Resize if too big
-        if pixmap.width() > 600:
-             pixmap = pixmap.scaledToWidth(600, Qt.TransformationMode.SmoothTransformation)
-             
+        if raw_pixmap.width() > 600:
+            raw_pixmap = raw_pixmap.scaledToWidth(600, Qt.TransformationMode.SmoothTransformation)
+
+        # Fill background so transparent areas don't appear black
+        pixmap = QPixmap(raw_pixmap.size())
+        pixmap.fill(QColor("#1a1a2e"))  # Dark background matching app theme
+        painter = QPainter(pixmap)
+        painter.drawPixmap(0, 0, raw_pixmap)
+        painter.end()
+
         splash = QSplashScreen(pixmap, Qt.WindowType.WindowStaysOnTopHint)
         splash.show()
         splash.showMessage("Starting Sortify...", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft, QColor("white"))
