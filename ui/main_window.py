@@ -531,7 +531,7 @@ class MainWindow(QMainWindow):
             event.accept()
 
     
-    def _ensure_file_ops(self, base_path, folder_name):
+    def _ensure_file_ops(self, base_path, folder_name, allowed_dirs=None):
         """
         Ensure FileOperations is initialized with valid parameters.
         Also initializes scheduler when file_ops is created.
@@ -539,14 +539,19 @@ class MainWindow(QMainWindow):
         Args:
             base_path: Base directory path
             folder_name: Organization folder name
+            allowed_dirs: Additional directories to allow (e.g. source file locations)
             
         Returns:
             bool: True if file_ops is ready, False otherwise
         """
         try:
             if self.file_ops is None:
-                # Pass config_manager to FileOperations
-                self.file_ops = FileOperations(base_path, folder_name, config_manager=self.config_manager)
+                # Pass config_manager and allowed_dirs to FileOperations
+                self.file_ops = FileOperations(
+                    base_path, folder_name,
+                    config_manager=self.config_manager,
+                    allowed_dirs=allowed_dirs
+                )
                 
                 # Initialize scheduler now that file_ops exists
                 if self.scheduler is None:
@@ -560,6 +565,16 @@ class MainWindow(QMainWindow):
                     self.scheduler.file_ops = self.file_ops
                     if not self.scheduler.scheduler.running:
                         self.scheduler.start()
+            else:
+                # file_ops already exists — extend its allowed dirs with any new ones
+                if allowed_dirs:
+                    for d in allowed_dirs:
+                        try:
+                            resolved = Path(d).resolve()
+                            if resolved not in self.file_ops.allowed_dirs:
+                                self.file_ops.allowed_dirs.append(resolved)
+                        except Exception:
+                            pass
             return True
         except ValueError as e:
             self.show_message("Configuration Error", str(e), QMessageBox.Icon.Warning)
@@ -873,9 +888,19 @@ class MainWindow(QMainWindow):
             # Save the selected directory to config
             if hasattr(self, 'config_manager') and self.config_manager:
                 self.config_manager.set_last_directory('destination', dest_dir)
-                
+
+            # Collect unique parent directories of all selected files so that
+            # _validate_path allows reading them regardless of which drive they live on.
+            source_dirs = list({
+                str(Path(f).resolve().parent) for f in self.selected_files
+            })
+
+            # Reset file_ops so it gets rebuilt with the correct allowed_dirs
+            # (needed when files come from a different source between runs)
+            self.file_ops = None
+
             # Ensure file operations is initialized
-            if not self._ensure_file_ops(dest_dir, "Organized Files"):
+            if not self._ensure_file_ops(dest_dir, "Organized Files", allowed_dirs=source_dirs):
                 return  # Failed to initialize
             
             try:
@@ -1127,13 +1152,19 @@ class MainWindow(QMainWindow):
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)
             
+            # Collect unique parent directories of all selected files
+            source_dirs = list({
+                str(Path(f).resolve().parent) for f in self.selected_files
+            })
+
             if preview_mode:
                 # DRY-RUN MODE: Create FileOperations in dry-run mode
                 # and use background thread to build the preview
                 self.preview_file_ops = FileOperations(
                     base_path=dest_dir,
                     folder_name="Organized Files",
-                    dry_run=True
+                    dry_run=True,
+                    allowed_dirs=source_dirs
                 )
                 
                 # Ensure FileOperations is properly initialized
@@ -1152,7 +1183,7 @@ class MainWindow(QMainWindow):
                 # Create a processing thread for dry-run
                 self.processing_thread = ProcessingThread(self.selected_files, self.preview_file_ops)
                 self.processing_thread.progress.connect(self.update_progress)
-                self.processing_thread.finished.connect(lambda results: self._on_preview_finished(dest_dir))
+                self.processing_thread.finished.connect(lambda results, _d=dest_dir, _s=source_dirs: self._on_preview_finished(_d, _s))
                 self.processing_thread.error.connect(self.on_processing_error)
                 self.processing_thread.start()
                 
@@ -1161,14 +1192,14 @@ class MainWindow(QMainWindow):
                 
             else:
                 # NORMAL MODE: Execute immediately using background thread
-                self._execute_organization(dest_dir)
+                self._execute_organization(dest_dir, source_dirs)
                 
         except Exception as e:
             self.progress_bar.setVisible(False)
             self.show_message("Error", f"Error organizing files: {str(e)}", QMessageBox.Icon.Critical)
             logging.error(f"Error in organize_files: {e}")
     
-    def _on_preview_finished(self, dest_dir):
+    def _on_preview_finished(self, dest_dir, source_dirs=None):
         """Handle preview processing completion - show preview dialog"""
         try:
             # Hide progress bar
@@ -1181,7 +1212,7 @@ class MainWindow(QMainWindow):
                 
                 if result == QDialog.DialogCode.Accepted:
                     # User clicked Continue - execute operations for real
-                    self._execute_organization(dest_dir)
+                    self._execute_organization(dest_dir, source_dirs)
                 else:
                     # User cancelled
                     self.status_bar.showMessage("Preview cancelled")
@@ -1192,11 +1223,13 @@ class MainWindow(QMainWindow):
             self.show_message("Error", f"Error showing preview: {str(e)}", QMessageBox.Icon.Critical)
             logging.error(f"Error in _on_preview_finished: {e}")
     
-    def _execute_organization(self, dest_dir):
+    def _execute_organization(self, dest_dir, source_dirs=None):
         """Execute the actual file organization (extracted for reuse)"""
         try:
-            # Ensure file operations is initialized
-            if not self._ensure_file_ops(dest_dir, "Organized Files"):
+            # Reset file_ops so allowed_dirs are rebuilt fresh for this run
+            self.file_ops = None
+            # Ensure file operations is initialized with source directories allowed
+            if not self._ensure_file_ops(dest_dir, "Organized Files", allowed_dirs=source_dirs):
                 return  # Failed to initialize
             
             # Show progress
